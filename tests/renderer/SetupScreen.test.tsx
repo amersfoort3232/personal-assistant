@@ -123,6 +123,41 @@ describe('first-run setup', () => {
     expect(screen.queryByRole('heading', { name: /finish setup/i })).not.toBeInTheDocument();
   });
 
+  it('moves focus to the planning heading when the final setup action completes', async () => {
+    const user = userEvent.setup();
+    await renderApp(createBridge({
+      getSetupStatus: vi.fn().mockResolvedValue({
+        hasDeepSeekApiKey: true,
+        googleConnected: false,
+        calendarReady: false,
+      }),
+    }));
+
+    await user.click(screen.getByRole('button', { name: /connect google calendar/i }));
+
+    const heading = await screen.findByRole('heading', { name: /plan your day/i });
+    expect(heading).toHaveAttribute('tabindex', '-1');
+    expect(heading).toHaveFocus();
+  });
+
+  it('does not move focus when the app initially loads completed setup', async () => {
+    window.assistant = createBridge({
+      getSetupStatus: vi.fn().mockResolvedValue({
+        hasDeepSeekApiKey: true,
+        googleConnected: true,
+        calendarReady: true,
+      }),
+    });
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    const heading = await screen.findByRole('heading', { name: /plan your day/i });
+    expect(heading).not.toHaveFocus();
+  });
+
   it('announces only the public message from a structured bridge error', async () => {
     const user = userEvent.setup();
     const bridge = createBridge({

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { SerializableAppError } from '../shared/ipc';
-import { appReducer, initialRendererState } from './appReducer';
+import { appReducer, initialRendererState, isSetupComplete } from './appReducer';
 import { SetupScreen } from './components/SetupScreen';
 
 type SetupActivity = 'saving-key' | 'connecting-google' | null;
@@ -24,6 +24,8 @@ export function App() {
   const mounted = useRef(false);
   const setupRequest = useRef<ReturnType<typeof window.assistant.getSetupStatus> | undefined>(undefined);
   const operationInFlight = useRef<Promise<unknown> | null>(null);
+  const focusPlanningAfterSetup = useRef(false);
+  const planningHeading = useRef<HTMLHeadingElement>(null);
   const setupRef = useRef(state.setup);
   setupRef.current = state.setup;
 
@@ -45,6 +47,18 @@ export function App() {
     return () => {
       mounted.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    if (state.view !== 'planning' || !focusPlanningAfterSetup.current) return;
+
+    focusPlanningAfterSetup.current = false;
+    planningHeading.current?.focus();
+  }, [state.view]);
+
+  const applySetupUpdate = useCallback((setup: NonNullable<typeof state.setup>) => {
+    if (isSetupComplete(setup)) focusPlanningAfterSetup.current = true;
+    dispatch({ type: 'setupUpdated', setup });
   }, []);
 
   const runSetupOperation = useCallback(async <T,>(
@@ -80,20 +94,17 @@ export function App() {
     () => window.assistant.saveDeepSeekApiKey(apiKey),
     () => {
       const setup = setupRef.current;
-      if (setup) dispatch({
-        type: 'setupUpdated',
-        setup: { ...setup, hasDeepSeekApiKey: true },
-      });
+      if (setup) applySetupUpdate({ ...setup, hasDeepSeekApiKey: true });
     },
-  ), [runSetupOperation]);
+  ), [applySetupUpdate, runSetupOperation]);
 
   const connectGoogle = useCallback(async () => {
     await runSetupOperation(
       'connecting-google',
       () => window.assistant.connectGoogle(),
-      (setup) => dispatch({ type: 'setupUpdated', setup }),
+      applySetupUpdate,
     );
-  }, [runSetupOperation]);
+  }, [applySetupUpdate, runSetupOperation]);
 
   if (state.view === 'loading') {
     return (
@@ -127,7 +138,7 @@ export function App() {
       <section className="planning-placeholder" aria-labelledby="planning-title">
         <div className="brand-mark" aria-hidden="true">PA</div>
         <p className="eyebrow">Setup complete</p>
-        <h1 id="planning-title">Plan your day</h1>
+        <h1 id="planning-title" ref={planningHeading} tabIndex={-1}>Plan your day</h1>
         <p className="lede">Your assistant is connected and ready for your tasks.</p>
       </section>
     </main>
