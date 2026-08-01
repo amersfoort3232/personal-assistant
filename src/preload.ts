@@ -1,3 +1,11 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+import { createAssistantBridge } from './renderer/bridge';
 
-contextBridge.exposeInMainWorld('personalAssistant', Object.freeze({}));
+contextBridge.exposeInMainWorld(
+  'assistant',
+  createAssistantBridge((channel, payload) => (
+    payload === undefined
+      ? ipcRenderer.invoke(channel)
+      : ipcRenderer.invoke(channel, payload)
+  )),
+);
