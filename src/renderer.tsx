@@ -1,7 +1,14 @@
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { App } from './renderer/App';
+import './renderer/styles.css';
 
-createRoot(document.getElementById('root')!).render(
-  <main>
-    <h1>Personal Assistant</h1>
-  </main>,
+const root = document.getElementById('root');
+
+if (!root) throw new Error('Renderer root element is missing.');
+
+createRoot(root).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
 );
