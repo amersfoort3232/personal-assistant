@@ -1,0 +1,13 @@
+.worktrees/
+.superpowers/
+node_modules/
+out/
+.vite/
+dist/
+playwright-report/
+test-results/
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
