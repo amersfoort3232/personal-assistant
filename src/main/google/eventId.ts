@@ -25,15 +25,11 @@ function base32Hex(buffer: Buffer): string {
 export function createGoogleEventId(calendarId: string, block: ScheduleBlock): string {
   const material = JSON.stringify([
     calendarId,
-    block.id,
     block.kind,
-    block.taskId ?? null,
+    block.taskId ?? '',
     block.title,
     block.start,
     block.end,
-    block.selected,
-    block.sessionIndex ?? null,
-    block.sessionCount ?? null,
   ]);
 
   const digest = createHash('sha256').update(material).digest();

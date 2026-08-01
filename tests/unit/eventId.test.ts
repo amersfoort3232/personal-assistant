@@ -23,6 +23,20 @@ describe('Google event IDs', () => {
     );
   });
 
+  it('keeps the same ID when regenerated blocks differ only in non-event metadata', () => {
+    const regenerated = {
+      ...block,
+      id: '3ddc3376-5ed1-4937-aa14-a04c48e06198',
+      selected: false,
+      sessionIndex: 2,
+      sessionCount: 3,
+    };
+
+    expect(createGoogleEventId('calendar@example.com', regenerated)).toBe(
+      createGoogleEventId('calendar@example.com', block),
+    );
+  });
+
   it('changes when approved block content changes without revealing private plaintext', () => {
     const eventId = createGoogleEventId('calendar@example.com', block);
 
