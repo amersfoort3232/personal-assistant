@@ -47,6 +47,14 @@ export class SessionStore {
     this.state.targetDate = schedule.targetDate;
   }
 
+  clearSchedule(): void {
+    this.state.busyPeriods = [];
+    this.state.draftSchedule = [];
+    this.state.unscheduledTasks = [];
+    this.state.warnings = [];
+    this.state.targetDate = undefined;
+  }
+
   reset(): void {
     this.state = emptyState();
   }

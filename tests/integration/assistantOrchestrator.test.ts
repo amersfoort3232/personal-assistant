@@ -37,6 +37,14 @@ function busy(start: string, end: string): BusyPeriod {
   return { start, end, sourceCalendarId: 'primary' };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
 class FakeVault {
   readonly values = new Map<string, string>();
 
@@ -71,10 +79,12 @@ class FakeGoogleAuth {
 
 class FakeSettingsRepository {
   saved: AppSettings[] = [];
+  loadCalls = 0;
 
   constructor(public value: AppSettings = SETTINGS) {}
 
   async load(): Promise<AppSettings> {
+    this.loadCalls += 1;
     return structuredClone(this.value);
   }
 
@@ -92,11 +102,12 @@ type InsertCall = {
 };
 
 class FakeCalendarService {
-  busyResponses: BusyPeriod[][] = [];
+  busyResponses: Array<BusyPeriod[] | Promise<BusyPeriod[]>> = [];
   busyCalls: Array<{ targetDate: string; settings: AppSettings }> = [];
   insertCalls: InsertCall[] = [];
   ensuredSettings: AppSettings = SETTINGS;
   insertBehavior?: (call: InsertCall) => EventCreationResult | Promise<EventCreationResult>;
+  onBusyCall?: () => void;
 
   async ensurePersonalAssistantCalendar(_settings: AppSettings): Promise<AppSettings> {
     return structuredClone(this.ensuredSettings);
@@ -104,7 +115,8 @@ class FakeCalendarService {
 
   async getBusyPeriods(targetDate: string, settings: AppSettings): Promise<BusyPeriod[]> {
     this.busyCalls.push({ targetDate, settings: structuredClone(settings) });
-    return structuredClone(this.busyResponses.shift() ?? []);
+    this.onBusyCall?.();
+    return structuredClone(await (this.busyResponses.shift() ?? []));
   }
 
   async insertBlock(
@@ -213,6 +225,41 @@ describe('AssistantOrchestrator', () => {
     });
   });
 
+  it('invalidates the existing draft when a message replaces the task list', async () => {
+    const harness = createHarness();
+    await createDraft(harness);
+    const replacement = task({ id: 'task-2', title: 'Replacement task' });
+    harness.taskService.responses = [[replacement]];
+
+    await harness.orchestrator.sendMessage('Use a different task');
+
+    expect(harness.session.getSnapshot()).toMatchObject({
+      tasks: [replacement],
+      busyPeriods: [],
+      draftSchedule: [],
+      unscheduledTasks: [],
+      warnings: [],
+      targetDate: undefined,
+    });
+  });
+
+  it('invalidates the existing draft when a task is edited', async () => {
+    const harness = createHarness();
+    await createDraft(harness);
+    const editedTask = task({ title: 'Updated launch notes' });
+
+    await harness.orchestrator.updateTask(editedTask);
+
+    expect(harness.session.getSnapshot()).toMatchObject({
+      tasks: [editedTask],
+      busyPeriods: [],
+      draftSchedule: [],
+      unscheduledTasks: [],
+      warnings: [],
+      targetDate: undefined,
+    });
+  });
+
   it.each([
     { name: 'an empty selection', ids: [] },
     { name: 'duplicate IDs', ids: ['known', 'known'] },
@@ -258,6 +305,84 @@ describe('AssistantOrchestrator', () => {
     expect(result.schedule.blocks[0].start).not.toBe(draft.blocks[0].start);
     expect(harness.calendar.insertCalls).toEqual([]);
     expect(harness.session.getSnapshot().draftSchedule).toEqual(result.schedule.blocks);
+  });
+
+  it('queues a draft update behind approval until the selected block is inserted', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    const busyRead = deferred<BusyPeriod[]>();
+    const busyStarted = deferred<void>();
+    harness.calendar.busyResponses = [busyRead.promise];
+    harness.calendar.onBusyCall = () => busyStarted.resolve();
+    const approval = harness.orchestrator.approveSchedule([draft.blocks[0].id]);
+    await busyStarted.promise;
+    const edited = [{
+      ...draft.blocks[0],
+      start: '2026-08-03T10:00:00+01:00',
+      end: '2026-08-03T11:00:00+01:00',
+    }];
+    const loadCallsBeforeUpdate = harness.settings.loadCalls;
+
+    const update = harness.orchestrator.updateSchedule(edited);
+    const loadCallsBeforeApprovalFinished = harness.settings.loadCalls;
+    busyRead.resolve([]);
+    await approval;
+    await update;
+
+    expect(loadCallsBeforeApprovalFinished).toBe(loadCallsBeforeUpdate);
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual([
+      draft.blocks[0].id,
+    ]);
+    expect(harness.session.getSnapshot().draftSchedule).toEqual(edited);
+  });
+
+  it('queues reset behind a pending approval conflict replacement', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    const busyRead = deferred<BusyPeriod[]>();
+    const busyStarted = deferred<void>();
+    harness.calendar.busyResponses = [busyRead.promise];
+    harness.calendar.onBusyCall = () => busyStarted.resolve();
+    const approval = harness.orchestrator.approveSchedule([draft.blocks[0].id]);
+    await busyStarted.promise;
+
+    const reset = Promise.resolve(harness.orchestrator.resetSession());
+    const targetDateBeforeApprovalFinished = harness.session.getSnapshot().targetDate;
+    busyRead.resolve([busy(draft.blocks[0].start, draft.blocks[0].end)]);
+    await approval;
+    await reset;
+
+    expect(targetDateBeforeApprovalFinished).toBe(TARGET_DATE);
+    expect(harness.session.getSnapshot()).toEqual({
+      messages: [],
+      tasks: [],
+      busyPeriods: [],
+      draftSchedule: [],
+      unscheduledTasks: [],
+      warnings: [],
+      targetDate: undefined,
+    });
+  });
+
+  it('does not approve a stale draft while an earlier regeneration is pending', async () => {
+    const harness = createHarness();
+    const original = await createDraft(harness);
+    const regenerationBusy = deferred<BusyPeriod[]>();
+    const busyStarted = deferred<void>();
+    harness.calendar.busyResponses = [regenerationBusy.promise, []];
+    harness.calendar.onBusyCall = () => busyStarted.resolve();
+    const regeneration = harness.orchestrator.generateSchedule(TARGET_DATE);
+    await busyStarted.promise;
+
+    const approval = harness.orchestrator.approveSchedule([original.blocks[0].id]);
+    regenerationBusy.resolve([busy(original.blocks[0].start, original.blocks[0].end)]);
+    await regeneration;
+
+    await expect(approval).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'Selected schedule block does not exist.',
+    });
+    expect(harness.calendar.insertCalls).toEqual([]);
   });
 
   it('inserts only selected blocks sequentially with deterministic IDs', async () => {
@@ -335,6 +460,34 @@ describe('AssistantOrchestrator', () => {
     expect(harness.session.getSnapshot().draftSchedule).toEqual(draft.blocks);
   });
 
+  it('rejects an edited selected task block that references a missing task', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    const invalid = [{ ...draft.blocks[0], taskId: 'missing-task' }];
+
+    await expect(harness.orchestrator.updateSchedule(invalid)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'Selected task block references a missing task.',
+    });
+    expect(harness.session.getSnapshot().draftSchedule).toEqual(draft.blocks);
+  });
+
+  it('rejects approval when a selected task block references a missing current task', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    harness.session.replaceTasks([]);
+    harness.calendar.busyCalls = [];
+
+    await expect(
+      harness.orchestrator.approveSchedule([draft.blocks[0].id]),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'Selected task block references a missing task.',
+    });
+    expect(harness.calendar.busyCalls).toEqual([]);
+    expect(harness.calendar.insertCalls).toEqual([]);
+  });
+
   it('accepts a valid edited draft and safely returns validation warnings', async () => {
     const harness = createHarness();
     const draft = await createDraft(harness);
@@ -350,11 +503,38 @@ describe('AssistantOrchestrator', () => {
     expect(harness.session.getSnapshot().draftSchedule).toEqual(edited);
   });
 
+  it('clears an edit warning after the edited draft adds the required break', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    const longTask = {
+      ...draft.blocks[0],
+      end: '2026-08-03T10:30:00+01:00',
+    };
+    const warned = await harness.orchestrator.updateSchedule([longTask]);
+
+    const corrected = await harness.orchestrator.updateSchedule([
+      longTask,
+      {
+        id: 'required-break',
+        kind: 'break',
+        title: 'Break',
+        start: '2026-08-03T10:30:00+01:00',
+        end: '2026-08-03T10:40:00+01:00',
+        selected: true,
+      },
+    ]);
+
+    expect(warned.warnings).toEqual([
+      'Long task is missing its required adjacent break.',
+    ]);
+    expect(corrected.warnings).toEqual([]);
+  });
+
   it('resets every ephemeral conversation and planning field', async () => {
     const harness = createHarness();
     await createDraft(harness);
 
-    harness.orchestrator.resetSession();
+    await harness.orchestrator.resetSession();
 
     expect(harness.session.getSnapshot()).toEqual({
       messages: [],
@@ -420,7 +600,7 @@ describe('AssistantOrchestrator', () => {
     await expect(harness.orchestrator.generateSchedule(TARGET_DATE)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
     await expect(harness.orchestrator.updateSchedule([])).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
     await expect(harness.orchestrator.approveSchedule(['missing'])).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
-    expect(() => harness.orchestrator.updateTask(task({ id: 'missing' }))).toThrowError(AppError);
+    await expect(harness.orchestrator.updateTask(task({ id: 'missing' }))).rejects.toBeInstanceOf(AppError);
     expect(harness.calendar.busyCalls).toEqual([]);
     expect(harness.calendar.insertCalls).toEqual([]);
   });
