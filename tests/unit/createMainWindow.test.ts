@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createMainWindowOptions } from '../../src/main/app/createMainWindow';
-import { isAllowedExternalUrl } from '../../src/main/app/securityPolicy';
+import {
+  createSystemBrowserOpener,
+  isAllowedExternalUrl,
+} from '../../src/main/app/securityPolicy';
 
 describe('secure Electron window', () => {
   it('isolates and sandboxes the renderer', () => {
@@ -20,5 +23,25 @@ describe('secure Electron window', () => {
     expect(isAllowedExternalUrl('https://calendar.google.com/calendar/u/0/r')).toBe(true);
     expect(isAllowedExternalUrl('http://example.com')).toBe(false);
     expect(isAllowedExternalUrl('file:///C:/Windows/System32/calc.exe')).toBe(false);
+  });
+
+  it('opens only approved Google HTTPS URLs in the system browser', async () => {
+    const openExternal = vi.fn(async () => undefined);
+    const openBrowser = createSystemBrowserOpener(openExternal);
+
+    await openBrowser('https://accounts.google.com/o/oauth2/v2/auth');
+    await openBrowser('https://calendar.google.com/calendar/u/0/r');
+    await expect(
+      openBrowser('https://evil.example/private?token=do-not-echo'),
+    ).rejects.toMatchObject({
+      code: 'GOOGLE_AUTH_FAILED',
+      message: 'Google authorization URL is not allowed.',
+      retryable: false,
+    });
+
+    expect(openExternal.mock.calls).toEqual([
+      ['https://accounts.google.com/o/oauth2/v2/auth'],
+      ['https://calendar.google.com/calendar/u/0/r'],
+    ]);
   });
 });

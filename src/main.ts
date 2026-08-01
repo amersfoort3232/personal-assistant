@@ -2,7 +2,10 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createMainWindowOptions } from './main/app/createMainWindow';
-import { isAllowedExternalUrl } from './main/app/securityPolicy';
+import {
+  createSystemBrowserOpener,
+  isAllowedExternalUrl,
+} from './main/app/securityPolicy';
 import { DeepSeekTaskService } from './main/deepseek/deepSeekTaskService';
 import { GoogleAuthService } from './main/google/googleAuthService';
 import { GoogleCalendarService } from './main/google/googleCalendarService';
@@ -68,9 +71,7 @@ async function startApplication(): Promise<void> {
         : {}),
     },
     vault,
-    async (url) => {
-      await shell.openExternal(url);
-    },
+    createSystemBrowserOpener((url) => shell.openExternal(url)),
   );
   const calendar = new GoogleCalendarService(googleAuth);
   const orchestrator = new AssistantOrchestrator(
