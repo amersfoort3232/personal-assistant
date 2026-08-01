@@ -6,12 +6,12 @@
   "author": "Personal Assistant",
   "main": ".vite/build/main.js",
   "scripts": {
-    "start": "electron-forge start",
-    "package": "electron-forge package",
-    "make": "electron-forge make",
+    "start": "set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge start",
+    "package": "set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge package",
+    "make": "set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge make",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && vitest run",
+    "test:watch": "set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && vitest",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm test"
   },
@@ -25,9 +25,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@electron-forge/cli": "^7.11.2",
-    "@electron-forge/maker-squirrel": "^7.11.2",
-    "@electron-forge/plugin-vite": "^7.11.2",
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-squirrel": "7.11.2",
+    "@electron-forge/plugin-vite": "7.11.2",
     "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
@@ -36,7 +36,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
-    "electron": "^43.2.0",
+    "electron": "43.2.0",
     "jsdom": "^30.0.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
