@@ -11,38 +11,56 @@ export class CredentialVault {
     private readonly encryption: EncryptionAdapter,
   ) {}
 
-  private file(name: CredentialName): string {
+  private unavailableError(): AppError {
+    return new AppError(
+      'CREDENTIAL_STORAGE_UNAVAILABLE',
+      'Windows credential encryption is unavailable.',
+      false,
+    );
+  }
+
+  private validateCredentialName(name: string): asserts name is CredentialName {
+    if (name !== 'deepseek-api-key' && name !== 'google-refresh-token') {
+      throw new AppError('VALIDATION_FAILED', 'Unsupported credential name.', false);
+    }
+  }
+
+  private file(name: string): string {
+    this.validateCredentialName(name);
     return path.join(this.directory, `${name}.bin`);
   }
 
   async set(name: CredentialName, value: string): Promise<void> {
-    try {
-      if (!(await this.encryption.isAvailable())) {
-        throw new AppError(
-          'CREDENTIAL_STORAGE_UNAVAILABLE',
-          'Windows credential encryption is unavailable.',
-          false,
-        );
-      }
+    this.validateCredentialName(name);
 
+    let encryptionAvailable: boolean;
+    try {
+      encryptionAvailable = await this.encryption.isAvailable();
+    } catch {
+      throw this.unavailableError();
+    }
+
+    if (!encryptionAvailable) {
+      throw this.unavailableError();
+    }
+
+    try {
       const encrypted = await this.encryption.encrypt(value);
       await mkdir(this.directory, { recursive: true });
       await writeFile(this.file(name), encrypted, { mode: 0o600 });
-    } catch (error) {
-      if (error instanceof AppError) {
-        throw error;
-      }
-
-      throw new AppError(
-        'CREDENTIAL_STORAGE_UNAVAILABLE',
-        'Windows credential encryption is unavailable.',
-        false,
-      );
+    } catch {
+      throw this.unavailableError();
     }
   }
 
   async get(name: CredentialName): Promise<string | undefined> {
+    this.validateCredentialName(name);
+
     try {
+      if (!(await this.encryption.isAvailable())) {
+        return undefined;
+      }
+
       return await this.encryption.decrypt(await readFile(this.file(name)));
     } catch {
       return undefined;
@@ -50,6 +68,7 @@ export class CredentialVault {
   }
 
   async delete(name: CredentialName): Promise<void> {
+    this.validateCredentialName(name);
     await rm(this.file(name), { force: true });
   }
 
