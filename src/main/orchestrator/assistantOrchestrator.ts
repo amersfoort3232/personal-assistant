@@ -4,6 +4,7 @@ import type {
   AppSettings,
   ApprovalResult,
   BusyPeriod,
+  CalendarEvent,
   ChatMessage,
   ConversationSnapshot,
   EventCreationResult,
@@ -70,6 +71,7 @@ type GoogleAuthPort = {
 type GoogleCalendarPort = {
   ensurePersonalAssistantCalendar(settings: AppSettings): Promise<AppSettings>;
   getBusyPeriods(targetDate: string, settings: AppSettings): Promise<BusyPeriod[]>;
+  getTodayCalendar(settings: AppSettings): Promise<CalendarEvent[]>;
   insertBlock(
     calendarId: string,
     block: ScheduleBlock,
@@ -312,6 +314,19 @@ export class AssistantOrchestrator {
 
   async getSettings(): Promise<AppSettings> {
     return this.settings.load();
+  }
+
+  getTodayCalendar(): Promise<CalendarEvent[]> {
+    return this.runExclusive(async () => {
+      if (!await this.googleAuth.isConnected()) {
+        throw new AppError('GOOGLE_NOT_CONNECTED', 'Google Calendar is not connected.', false);
+      }
+      const settings = await this.settings.load();
+      if (!settings.personalAssistantCalendarId) {
+        throw new AppError('CALENDAR_UNAVAILABLE', 'Personal Assistant calendar is not ready.', false);
+      }
+      return this.calendar.getTodayCalendar(settings);
+    });
   }
 
   updateSettings(input: AppSettings): Promise<AppSettings> {

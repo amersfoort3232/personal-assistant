@@ -3,6 +3,7 @@ import { GoogleAuthService, type OAuthLoopbackFactory } from '../../src/main/goo
 import { waitForOAuthCode } from '../../src/main/google/oauthLoopbackServer';
 
 const APPROVED_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.events.readonly',
   'https://www.googleapis.com/auth/calendar.freebusy',
   'https://www.googleapis.com/auth/calendar.app.created',
 ];

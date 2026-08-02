@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type {
   AppSettings,
+  CalendarEvent,
   ApprovalResult,
   ConversationSnapshot,
   ProposedTask,
@@ -40,6 +41,7 @@ export type OrchestratorPort = {
   connectGoogle(): Promise<SetupStatus>;
   disconnectGoogle(): Promise<SetupStatus>;
   getSettings(): Promise<AppSettings>;
+  getTodayCalendar(): Promise<CalendarEvent[]>;
   updateSettings(settings: AppSettings): Promise<AppSettings>;
   sendMessage(text: string): Promise<ConversationSnapshot>;
   updateTask(task: ProposedTask): Promise<ConversationSnapshot>;
@@ -80,6 +82,10 @@ export const handlerDefinitions = {
   [IPC.GET_SETTINGS]: {
     schema: ipcRequestSchemas.getSettings,
     invoke: (orchestrator) => orchestrator.getSettings(),
+  } satisfies HandlerDefinition<undefined>,
+  [IPC.GET_TODAY_CALENDAR]: {
+    schema: ipcRequestSchemas.getTodayCalendar,
+    invoke: (orchestrator) => orchestrator.getTodayCalendar(),
   } satisfies HandlerDefinition<undefined>,
   [IPC.UPDATE_SETTINGS]: {
     schema: ipcRequestSchemas.updateSettings,
@@ -206,6 +212,7 @@ export function registerIpcHandlers(
   registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.CONNECT_GOOGLE, handlerDefinitions[IPC.CONNECT_GOOGLE]);
   registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.DISCONNECT_GOOGLE, handlerDefinitions[IPC.DISCONNECT_GOOGLE]);
   registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.GET_SETTINGS, handlerDefinitions[IPC.GET_SETTINGS]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.GET_TODAY_CALENDAR, handlerDefinitions[IPC.GET_TODAY_CALENDAR]);
   registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.UPDATE_SETTINGS, handlerDefinitions[IPC.UPDATE_SETTINGS]);
   registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.SEND_MESSAGE, handlerDefinitions[IPC.SEND_MESSAGE]);
   registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.UPDATE_TASK, handlerDefinitions[IPC.UPDATE_TASK]);

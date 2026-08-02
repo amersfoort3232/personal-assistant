@@ -1,6 +1,7 @@
 import type {
   AppSettings,
   BusyPeriod,
+  CalendarEvent,
   ChatMessage,
   EventCreationResult,
   ProposedTask,
@@ -52,6 +53,15 @@ function busyPeriod(targetDate: string, start: string, end: string): BusyPeriod 
     end: `${targetDate}T${end}:00+01:00`,
     sourceCalendarId: 'primary',
   };
+}
+
+function todayCalendar(settings: AppSettings): CalendarEvent[] {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: settings.timeZone }).format(new Date());
+  return [{
+    id: 'e2e-calendar-event', title: 'Example calendar event',
+    start: `${today}T12:00:00+01:00`, end: `${today}T13:00:00+01:00`,
+    allDay: false, sourceCalendarId: 'primary',
+  }];
 }
 
 export async function createFakeApplicationServices(
@@ -108,6 +118,7 @@ export async function createFakeApplicationServices(
         }
         return periods;
       },
+      getTodayCalendar: async (input: AppSettings) => todayCalendar(input),
       insertBlock: async (
         _calendarId: string,
         block: ScheduleBlock,

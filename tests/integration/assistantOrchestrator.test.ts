@@ -119,6 +119,10 @@ class FakeCalendarService {
     return structuredClone(await (this.busyResponses.shift() ?? []));
   }
 
+  async getTodayCalendar(): Promise<import('../../src/shared/domain').CalendarEvent[]> {
+    return [];
+  }
+
   async insertBlock(
     calendarId: string,
     block: ScheduleBlock,

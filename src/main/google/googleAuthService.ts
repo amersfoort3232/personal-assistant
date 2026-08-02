@@ -5,6 +5,7 @@ import { createPkcePair } from './pkce';
 import { waitForOAuthCode, type OAuthLoopback } from './oauthLoopbackServer';
 
 const SCOPES = [
+  'https://www.googleapis.com/auth/calendar.events.readonly',
   'https://www.googleapis.com/auth/calendar.freebusy',
   'https://www.googleapis.com/auth/calendar.app.created',
 ];

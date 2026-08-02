@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type {
   AppSettings,
   BusyPeriod,
+  CalendarEvent,
   EventCreationResult,
   ProposedTask,
   ScheduleBlock,
@@ -60,6 +61,15 @@ const existingEventSchema = z.object({
     timeZone: z.string().optional(),
   }).passthrough(),
 }).passthrough();
+
+const calendarListEventSchema = z.object({
+  id: z.string().min(1),
+  summary: z.string().trim().max(160).optional(),
+  start: z.object({ dateTime: z.string().datetime({ offset: true }).optional(), date: z.string().date().optional() }).passthrough(),
+  end: z.object({ dateTime: z.string().datetime({ offset: true }).optional(), date: z.string().date().optional() }).passthrough(),
+}).passthrough();
+
+const calendarListResponseSchema = z.object({ items: z.array(calendarListEventSchema).default([]) }).passthrough();
 
 function unavailable(message: string, retryable = true): AppError {
   return new AppError('CALENDAR_UNAVAILABLE', message, retryable);
@@ -151,6 +161,30 @@ export class GoogleCalendarService {
         return parsed.data;
       });
     });
+  }
+
+  async getTodayCalendar(settings: AppSettings): Promise<CalendarEvent[]> {
+    if (!settings.personalAssistantCalendarId) throw unavailable('Personal Assistant calendar is missing.', false);
+    const start = DateTime.now().setZone(settings.timeZone).startOf('day');
+    const end = start.plus({ days: 1 });
+    const calendarIds = ['primary', settings.personalAssistantCalendarId];
+    const results = await Promise.all(calendarIds.map(async (calendarId) => {
+      const query = new URLSearchParams({
+        timeMin: start.toISO()!, timeMax: end.toISO()!, singleEvents: 'true', orderBy: 'startTime',
+      });
+      const response = await this.request(`/calendars/${encodeURIComponent(calendarId)}/events?${query}`);
+      if (!response.ok) throw unavailable('Unable to read today\'s calendar.');
+      const payload = await this.readJson(response, calendarListResponseSchema);
+      return payload.items.map((event): CalendarEvent => {
+        const timed = event.start.dateTime && event.end.dateTime;
+        const allDay = event.start.date && event.end.date;
+        if (!timed && !allDay) throw invalidResponse();
+        const eventStart = timed ? event.start.dateTime! : `${event.start.date}T00:00:00${start.toFormat('ZZ')}`;
+        const eventEnd = timed ? event.end.dateTime! : `${event.end.date}T00:00:00${start.toFormat('ZZ')}`;
+        return { id: event.id, title: event.summary || 'Untitled event', start: eventStart, end: eventEnd, allDay: Boolean(allDay), sourceCalendarId: calendarId };
+      });
+    }));
+    return results.flat().sort((left, right) => left.start.localeCompare(right.start) || left.title.localeCompare(right.title));
   }
 
   async insertBlock(

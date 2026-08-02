@@ -36,6 +36,15 @@ export const busyPeriodSchema = z
   })
   .strict();
 
+export const calendarEventSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(160),
+  start: rfc3339WithOffset,
+  end: rfc3339WithOffset,
+  allDay: z.boolean(),
+  sourceCalendarId: z.string().min(1),
+}).strict();
+
 export const scheduleBlockSchema = z
   .object({
     id: z.string().min(1),
@@ -100,6 +109,7 @@ export const ipcRequestSchemas = {
   connectGoogle: z.undefined(),
   disconnectGoogle: z.undefined(),
   getSettings: z.undefined(),
+  getTodayCalendar: z.undefined(),
   updateSettings: appSettingsSchema,
   sendMessage: z.object({ text: z.string().trim().min(1).max(5000) }).strict(),
   updateTask: proposedTaskSchema,

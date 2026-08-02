@@ -71,6 +71,7 @@ function createOrchestrator(): OrchestratorPort {
       calendarReady: false,
     })),
     getSettings: vi.fn(async () => settings),
+    getTodayCalendar: vi.fn(async () => []),
     updateSettings: vi.fn(async (settings) => settings),
     sendMessage: vi.fn(async () => ({ messages: [], tasks: [] })),
     updateTask: vi.fn(async () => ({ messages: [], tasks: [] })),

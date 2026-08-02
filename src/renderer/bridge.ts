@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  CalendarEvent,
   ApprovalResult,
   ConversationSnapshot,
   ProposedTask,
@@ -21,6 +22,7 @@ export type AssistantBridge = {
   connectGoogle(): Promise<SetupStatus>;
   disconnectGoogle(): Promise<SetupStatus>;
   getSettings(): Promise<AppSettings>;
+  getTodayCalendar(): Promise<CalendarEvent[]>;
   updateSettings(settings: AppSettings): Promise<AppSettings>;
   sendMessage(text: string): Promise<ConversationSnapshot>;
   updateTask(task: ProposedTask): Promise<ConversationSnapshot>;
@@ -101,6 +103,7 @@ export function createAssistantBridge(invoke: IpcInvoker): AssistantBridge {
     connectGoogle: () => invokeSafely<SetupStatus>(invoke, IPC.CONNECT_GOOGLE),
     disconnectGoogle: () => invokeSafely<SetupStatus>(invoke, IPC.DISCONNECT_GOOGLE),
     getSettings: () => invokeSafely<AppSettings>(invoke, IPC.GET_SETTINGS),
+    getTodayCalendar: () => invokeSafely<CalendarEvent[]>(invoke, IPC.GET_TODAY_CALENDAR),
     updateSettings: (settings) => invokeSafely<AppSettings>(
       invoke,
       IPC.UPDATE_SETTINGS,

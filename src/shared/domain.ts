@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import type {
   appSettingsSchema,
   busyPeriodSchema,
+  calendarEventSchema,
   proposedTaskSchema,
   scheduleBlockSchema,
   taskPrioritySchema,
@@ -11,6 +12,7 @@ import type {
 export type TaskPriority = z.infer<typeof taskPrioritySchema>;
 export type ProposedTask = z.infer<typeof proposedTaskSchema>;
 export type BusyPeriod = z.infer<typeof busyPeriodSchema>;
+export type CalendarEvent = z.infer<typeof calendarEventSchema>;
 export type ScheduleBlock = z.infer<typeof scheduleBlockSchema>;
 export type UnscheduledTask = z.infer<typeof unscheduledTaskSchema>;
 export type AppSettings = z.infer<typeof appSettingsSchema>;

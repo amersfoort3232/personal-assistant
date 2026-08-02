@@ -117,6 +117,7 @@ describe('assistant preload bridge', () => {
     await bridge.updateSchedule([]);
     await bridge.approveSchedule(['block-1']);
     await bridge.resetSession();
+    await bridge.getTodayCalendar();
 
     expect(invoke.mock.calls).toEqual([
       [IPC.GET_SETUP_STATUS],
@@ -146,6 +147,7 @@ describe('assistant preload bridge', () => {
       [IPC.UPDATE_SCHEDULE, { blocks: [] }],
       [IPC.APPROVE_SCHEDULE, { blockIds: ['block-1'] }],
       [IPC.RESET_SESSION],
+      [IPC.GET_TODAY_CALENDAR],
     ]);
     expect(Object.keys(bridge).sort()).toEqual([
       'approveSchedule',
@@ -154,6 +156,7 @@ describe('assistant preload bridge', () => {
       'generateSchedule',
       'getSettings',
       'getSetupStatus',
+      'getTodayCalendar',
       'resetSession',
       'saveDeepSeekApiKey',
       'sendMessage',

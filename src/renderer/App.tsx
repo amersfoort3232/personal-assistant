@@ -6,6 +6,7 @@ import type {
   ProposedTask,
   ScheduleBlock,
   ScheduleSnapshot,
+  CalendarEvent,
 } from '../shared/domain';
 import type { SerializableAppError } from '../shared/ipc';
 import { appReducer, initialRendererState, isSetupComplete } from './appReducer';
@@ -16,6 +17,8 @@ import { ScheduleTimeline } from './components/ScheduleTimeline';
 import { SetupScreen } from './components/SetupScreen';
 import { TaskReview } from './components/TaskReview';
 import { UnscheduledTasks } from './components/UnscheduledTasks';
+import { TodayCalendarSummary } from './components/TodayCalendarSummary';
+import { CalendarTimeline } from './components/CalendarTimeline';
 import type { PlanningActionResult } from './planningActionResult';
 
 type SetupActivity = 'saving-key' | 'connecting-google' | null;
@@ -53,6 +56,8 @@ export function App() {
   const [planningActivity, setPlanningActivity] = useState<PlanningActivity>(null);
   const [selectedDate, setSelectedDate] = useState(currentLondonDate);
   const [composerResetToken, setComposerResetToken] = useState(0);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [showCalendar, setShowCalendar] = useState(false);
   const mounted = useRef(false);
   const setupRequest = useRef<ReturnType<typeof window.assistant.getSetupStatus> | undefined>(undefined);
   const operationInFlight = useRef<Promise<unknown> | null>(null);
@@ -164,6 +169,14 @@ export function App() {
       applySetupUpdate,
     );
   }, [applySetupUpdate, runSetupOperation]);
+
+  const loadTodayCalendar = useCallback(async () => {
+    try { setCalendarEvents(await window.assistant.getTodayCalendar()); } catch { setCalendarEvents([]); }
+  }, []);
+
+  useEffect(() => {
+    if (state.view === 'planning') void loadTodayCalendar();
+  }, [loadTodayCalendar, state.view]);
 
   const sendMessage = useCallback((text: string) => runPlanningOperation(
     'interpreting',
@@ -378,6 +391,7 @@ export function App() {
   }
 
   const messages = state.conversation?.messages ?? [];
+  if (showCalendar) return <CalendarTimeline events={calendarEvents} onBackHome={() => setShowCalendar(false)} />;
   const tasks = state.conversation?.tasks ?? [];
   const planningStatus = planningActivity === 'updating-task'
     ? 'Saving task changes…'
@@ -414,6 +428,8 @@ export function App() {
             </button>
           </div>
         </header>
+
+        <TodayCalendarSummary events={calendarEvents} onViewCalendar={() => setShowCalendar(true)} />
 
         <div className="planning-columns">
           <ChatPanel
