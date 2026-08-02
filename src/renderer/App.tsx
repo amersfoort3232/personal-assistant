@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { DateTime } from 'luxon';
-import type { ConversationSnapshot, ProposedTask } from '../shared/domain';
+import type {
+  ApprovalResult,
+  ConversationSnapshot,
+  ProposedTask,
+  ScheduleBlock,
+  ScheduleSnapshot,
+} from '../shared/domain';
 import type { SerializableAppError } from '../shared/ipc';
 import { appReducer, initialRendererState, isSetupComplete } from './appReducer';
 import { ChatPanel } from './components/ChatPanel';
+import { ApprovalBar } from './components/ApprovalBar';
+import { ApprovalResultView } from './components/ApprovalResultView';
+import { ScheduleTimeline } from './components/ScheduleTimeline';
 import { SetupScreen } from './components/SetupScreen';
 import { TaskReview } from './components/TaskReview';
+import { UnscheduledTasks } from './components/UnscheduledTasks';
 import type { PlanningActionResult } from './planningActionResult';
 
 type SetupActivity = 'saving-key' | 'connecting-google' | null;
@@ -13,6 +23,8 @@ type PlanningActivity =
   | 'interpreting'
   | 'updating-task'
   | 'generating-schedule'
+  | 'updating-schedule'
+  | 'approving-schedule'
   | 'resetting-session'
   | null;
 
@@ -186,6 +198,43 @@ export function App() {
     }
   }, [runPlanningOperation, selectedDate]);
 
+  const updateSchedule = useCallback(async (blocks: ScheduleBlock[]): Promise<boolean> => {
+    try {
+      const result = await runPlanningOperation<ScheduleSnapshot>(
+        'updating-schedule',
+        () => window.assistant.updateSchedule(blocks),
+        (schedule) => dispatch({ type: 'scheduleUpdated', schedule }),
+      );
+      return result.status === 'completed';
+    } catch {
+      // The current state is the last main-process-accepted snapshot.
+      return false;
+    }
+  }, [runPlanningOperation]);
+
+  const handleApprovalResult = useCallback((result: ApprovalResult, retry: boolean) => {
+    if (result.status === 'conflict-detected') {
+      dispatch({ type: 'approvalConflict', schedule: result.schedule });
+      return;
+    }
+    dispatch({
+      type: retry ? 'approvalRetried' : 'approvalCompleted',
+      approval: result,
+    });
+  }, []);
+
+  const approveSchedule = useCallback(async (blockIds: string[], retry = false) => {
+    try {
+      await runPlanningOperation(
+        'approving-schedule',
+        () => window.assistant.approveSchedule(blockIds),
+        (result) => handleApprovalResult(result, retry),
+      );
+    } catch {
+      // Keep the accepted schedule/result visible and show only the public bridge error.
+    }
+  }, [handleApprovalResult, runPlanningOperation]);
+
   const resetSession = useCallback(async () => {
     try {
       await runPlanningOperation(
@@ -230,13 +279,99 @@ export function App() {
   }
 
   if (state.view === 'schedule' && state.schedule) {
+    const messages = state.conversation?.messages ?? [];
+    const tasks = state.conversation?.tasks ?? [];
+    const selectedIds = state.schedule.blocks
+      .filter((block) => block.selected)
+      .map((block) => block.id);
     return (
       <main className="app-shell planning-shell">
-        <section className="schedule-placeholder" aria-labelledby="schedule-title">
-          <p className="eyebrow">{state.schedule.targetDate}</p>
-          <h1 id="schedule-title">Review your schedule</h1>
-          <p className="lede">Your draft is ready to review before anything is added to Google Calendar.</p>
-        </section>
+        <div className="planning-workspace schedule-workspace">
+          <header className="planning-header">
+            <div>
+              <p className="eyebrow">{state.schedule.targetDate}</p>
+              <h1 id="schedule-title">Review your schedule</h1>
+              <p className="lede">Review every selected block before anything is added to Google Calendar.</p>
+            </div>
+            <button
+              className="button button-secondary"
+              disabled={state.busy}
+              onClick={() => void resetSession()}
+              type="button"
+            >
+              Start new day
+            </button>
+          </header>
+
+          {state.conflictAnnouncement && (
+            <div className="status-message is-error conflict-message" role="alert">
+              {state.conflictAnnouncement}
+            </div>
+          )}
+
+          <div className="planning-columns schedule-columns">
+            <ChatPanel
+              disabled={state.busy}
+              interpreting={planningActivity === 'interpreting'}
+              messages={messages}
+              onSend={sendMessage}
+              resetToken={composerResetToken}
+            />
+            <div className="review-column">
+              <ScheduleTimeline
+                blocks={state.schedule.blocks}
+                busy={state.busy}
+                busyPeriods={state.schedule.busyPeriods}
+                onChange={updateSchedule}
+              />
+              <UnscheduledTasks tasks={tasks} unscheduledTasks={state.schedule.unscheduledTasks} />
+              {state.schedule.warnings.map((warning) => (
+                <p className="schedule-warning" key={warning}>⚠ {warning}</p>
+              ))}
+              <ApprovalBar
+                busy={state.busy}
+                onApprove={(blockIds) => void approveSchedule(blockIds)}
+                selectedIds={selectedIds}
+              />
+            </div>
+          </div>
+
+          {state.error && <div className="status-message is-error" role="alert">{state.error}</div>}
+          {planningActivity && planningActivity !== 'interpreting' && (
+            <div aria-live="polite" className="status-message" role="status">
+              {planningActivity === 'approving-schedule'
+                ? 'Checking conflicts and creating selected events…'
+                : planningActivity === 'updating-schedule'
+                  ? 'Validating schedule change…'
+                  : 'Working…'}
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  if (
+    state.view === 'result'
+    && state.schedule
+    && state.approval?.status === 'completed'
+  ) {
+    return (
+      <main className="app-shell planning-shell">
+        <div className="result-workspace">
+          <ApprovalResultView
+            blocks={state.schedule.blocks}
+            busy={state.busy}
+            onRetryFailed={(blockIds) => void approveSchedule(blockIds, true)}
+            results={state.approval.results}
+          />
+          {state.error && <div className="status-message is-error" role="alert">{state.error}</div>}
+          {planningActivity === 'approving-schedule' && (
+            <div aria-live="polite" className="status-message" role="status">
+              Retrying failed events…
+            </div>
+          )}
+        </div>
       </main>
     );
   }

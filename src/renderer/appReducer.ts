@@ -15,6 +15,7 @@ export type RendererState = {
   approval?: ApprovalResult;
   busy: boolean;
   error?: string;
+  conflictAnnouncement?: string;
 };
 
 export const initialRendererState: RendererState = {
@@ -29,7 +30,13 @@ export type AppAction =
   | { type: 'setupUpdated'; setup: SetupStatus }
   | { type: 'conversationUpdated'; conversation: ConversationSnapshot }
   | { type: 'scheduleGenerated'; schedule: ScheduleSnapshot }
+  | { type: 'scheduleUpdated'; schedule: ScheduleSnapshot }
+  | { type: 'approvalConflict'; schedule: ScheduleSnapshot }
+  | { type: 'approvalCompleted'; approval: Extract<ApprovalResult, { status: 'completed' }> }
+  | { type: 'approvalRetried'; approval: Extract<ApprovalResult, { status: 'completed' }> }
   | { type: 'sessionReset' };
+
+export const CONFLICT_ANNOUNCEMENT = 'Your calendar changed after this schedule was created. No events were added. Review the revised schedule.';
 
 export function isSetupComplete(setup: SetupStatus): boolean {
   return setup.hasDeepSeekApiKey && setup.googleConnected && setup.calendarReady;
@@ -45,6 +52,7 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
         setup: action.setup,
         busy: false,
         error: undefined,
+        conflictAnnouncement: undefined,
       };
     case 'operationStarted':
       return { ...state, busy: true, error: undefined };
@@ -59,6 +67,7 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
         approval: undefined,
         busy: false,
         error: undefined,
+        conflictAnnouncement: undefined,
       };
     case 'scheduleGenerated':
       return {
@@ -68,7 +77,53 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
         approval: undefined,
         busy: false,
         error: undefined,
+        conflictAnnouncement: undefined,
       };
+    case 'scheduleUpdated':
+      return {
+        ...state,
+        view: 'schedule',
+        schedule: action.schedule,
+        busy: false,
+        error: undefined,
+      };
+    case 'approvalConflict':
+      return {
+        ...state,
+        view: 'schedule',
+        schedule: action.schedule,
+        approval: undefined,
+        busy: false,
+        error: undefined,
+        conflictAnnouncement: CONFLICT_ANNOUNCEMENT,
+      };
+    case 'approvalCompleted':
+      return {
+        ...state,
+        view: 'result',
+        approval: action.approval,
+        busy: false,
+        error: undefined,
+        conflictAnnouncement: undefined,
+      };
+    case 'approvalRetried': {
+      const previous = state.approval?.status === 'completed' ? state.approval.results : [];
+      const retriedIds = new Set(action.approval.results.map((result) => result.blockId));
+      return {
+        ...state,
+        view: 'result',
+        approval: {
+          status: 'completed',
+          results: [
+            ...previous.filter((result) => !retriedIds.has(result.blockId)),
+            ...action.approval.results,
+          ],
+        },
+        busy: false,
+        error: undefined,
+        conflictAnnouncement: undefined,
+      };
+    }
     case 'sessionReset':
       return {
         ...state,
@@ -78,6 +133,7 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
         approval: undefined,
         busy: false,
         error: undefined,
+        conflictAnnouncement: undefined,
       };
   }
 }
