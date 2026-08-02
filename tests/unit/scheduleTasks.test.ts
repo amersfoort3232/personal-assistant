@@ -58,26 +58,20 @@ function sessionTiming(block: ScheduleBlock): {
 }
 
 describe('scheduleTasks', () => {
-  it('schedules an earlier-deadline low-priority task before a high-priority task without a deadline', () => {
+  it('schedules a high-priority task before a low-priority task', () => {
     const result = scheduleTasks({
       targetDate,
       settings,
       busyPeriods: [],
       tasks: [
         task({ id: 'high', title: 'High', durationMinutes: 60, priority: 'high' }),
-        task({
-          id: 'due',
-          title: 'Due',
-          durationMinutes: 60,
-          priority: 'low',
-          deadline: '2026-08-03T10:00:00+01:00',
-        }),
+        task({ id: 'low', title: 'Low', durationMinutes: 60, priority: 'low' }),
       ],
     });
 
     expect(result.blocks.filter((block) => block.kind === 'task').map(taskTiming)).toEqual([
-      { taskId: 'due', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T10:00:00.000+01:00' },
-      { taskId: 'high', start: '2026-08-03T10:15:00.000+01:00', end: '2026-08-03T11:15:00.000+01:00' },
+      { taskId: 'high', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T10:00:00.000+01:00' },
+      { taskId: 'low', start: '2026-08-03T10:15:00.000+01:00', end: '2026-08-03T11:15:00.000+01:00' },
     ]);
   });
 
@@ -139,17 +133,16 @@ describe('scheduleTasks', () => {
     }]);
   });
 
-  it('sorts equal deadlines urgent before high before medium before low', () => {
-    const deadline = '2026-08-03T12:00:00+01:00';
+  it('sorts urgent before high before medium before low', () => {
     const result = scheduleTasks({
       targetDate,
       settings,
       busyPeriods: [],
       tasks: [
-        task({ id: 'low', title: 'Low', priority: 'low', deadline }),
-        task({ id: 'medium', title: 'Medium', priority: 'medium', deadline }),
-        task({ id: 'high', title: 'High', priority: 'high', deadline }),
-        task({ id: 'urgent', title: 'Urgent', priority: 'urgent', deadline }),
+        task({ id: 'low', title: 'Low', priority: 'low' }),
+        task({ id: 'medium', title: 'Medium', priority: 'medium' }),
+        task({ id: 'high', title: 'High', priority: 'high' }),
+        task({ id: 'urgent', title: 'Urgent', priority: 'urgent' }),
       ],
     });
 
@@ -278,27 +271,6 @@ describe('scheduleTasks', () => {
     }]);
   });
 
-  it('returns deadline-impossible when every free slot starts after the deadline', () => {
-    const result = scheduleTasks({
-      targetDate,
-      settings,
-      busyPeriods: [busy('2026-08-03T09:00:00+01:00', '2026-08-03T10:30:00+01:00')],
-      tasks: [task({
-        id: 'missed',
-        title: 'Missed',
-        durationMinutes: 30,
-        deadline: '2026-08-03T10:00:00+01:00',
-      })],
-    });
-
-    expect(result.blocks).toEqual([]);
-    expect(result.unscheduledTasks).toEqual([{
-      taskId: 'missed',
-      remainingMinutes: 30,
-      reason: 'deadline-impossible',
-    }]);
-  });
-
   it('never schedules before 09:00 or after 17:00', () => {
     const result = scheduleTasks({
       targetDate,
@@ -323,27 +295,6 @@ describe('scheduleTasks', () => {
       start: '2026-08-03T16:00:00.000+01:00',
       end: '2026-08-03T17:00:00.000+01:00',
     });
-  });
-
-  it('allows a required break to follow the task deadline', () => {
-    const result = scheduleTasks({
-      targetDate,
-      settings,
-      busyPeriods: [],
-      tasks: [task({
-        id: 'break-before-deadline',
-        title: 'Break before deadline',
-        durationMinutes: 61,
-        deadline: '2026-08-03T10:01:00+01:00',
-      })],
-    });
-
-    expect(result.blocks.map((block) => ({ kind: block.kind, start: block.start, end: block.end })))
-      .toEqual([
-        { kind: 'task', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T10:01:00.000+01:00' },
-        { kind: 'break', start: '2026-08-03T10:01:00.000+01:00', end: '2026-08-03T10:16:00.000+01:00' },
-      ]);
-    expect(result.unscheduledTasks).toEqual([]);
   });
 
   it('preserves original input order when every ordering field ties', () => {
@@ -523,26 +474,6 @@ describe('scheduleTasks', () => {
       taskId: 'full',
       remainingMinutes: 30,
       reason: 'no-free-time',
-    }]);
-  });
-
-  it('reports deadline-impossible when a deadline task has no usable time before its deadline', () => {
-    const result = scheduleTasks({
-      targetDate,
-      settings,
-      busyPeriods: [busy('2026-08-03T09:00:00+01:00', '2026-08-03T17:00:00+01:00')],
-      tasks: [task({
-        id: 'blocked-deadline',
-        title: 'Blocked deadline',
-        deadline: '2026-08-03T12:00:00+01:00',
-      })],
-    });
-
-    expect(result.blocks).toEqual([]);
-    expect(result.unscheduledTasks).toEqual([{
-      taskId: 'blocked-deadline',
-      remainingMinutes: 30,
-      reason: 'deadline-impossible',
     }]);
   });
 

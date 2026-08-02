@@ -13,7 +13,6 @@ export const proposedTaskSchema = z
     durationMinutes: z.number().int().min(5).max(480),
     durationWasEstimated: z.boolean(),
     priority: taskPrioritySchema,
-    deadline: rfc3339WithOffset.optional(),
     fixedStartTime: localTime.optional(),
     canSplit: z.boolean(),
     minimumSessionMinutes: z.number().int().min(15).max(120),
@@ -66,7 +65,6 @@ export const unscheduledTaskSchema = z
     remainingMinutes: z.number().int().positive(),
     reason: z.enum([
       'no-free-time',
-      'deadline-impossible',
       'fixed-time-conflict',
       'minimum-session-does-not-fit',
     ]),

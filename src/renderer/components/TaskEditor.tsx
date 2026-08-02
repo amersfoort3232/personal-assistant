@@ -1,12 +1,6 @@
-import { DateTime } from 'luxon';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProposedTask, TaskPriority } from '../../shared/domain';
 import type { PlanningActionResult } from '../planningActionResult';
-
-const LONDON_ZONE = 'Europe/London';
-const LOCAL_DEADLINE_FORMAT = "yyyy-MM-dd'T'HH:mm";
-
-type DeadlineOffsetChoice = '' | 'earlier' | 'later';
 
 type TaskEditorProps = {
   task: ProposedTask;
@@ -20,37 +14,10 @@ type TaskFormState = {
   durationMinutes: string;
   durationWasEstimated: boolean;
   priority: TaskPriority;
-  deadline: string;
-  deadlineOffsetChoice: DeadlineOffsetChoice;
   fixedStartTime: string;
   canSplit: boolean;
   minimumSessionMinutes: string;
 };
-
-type DeadlineState = {
-  candidates: DateTime[];
-  error?: string;
-};
-
-function deadlineToLocal(deadline: string | undefined): string {
-  if (!deadline) return '';
-  const parsed = DateTime.fromISO(deadline, { setZone: true }).setZone(LONDON_ZONE);
-  return parsed.isValid ? parsed.toFormat(LOCAL_DEADLINE_FORMAT) : '';
-}
-
-function sortedPossibleOffsets(deadline: DateTime): DateTime[] {
-  return deadline.getPossibleOffsets().sort((first, second) => first.toMillis() - second.toMillis());
-}
-
-function originalDeadlineOffsetChoice(task: ProposedTask): DeadlineOffsetChoice {
-  if (!task.deadline) return '';
-  const original = DateTime.fromISO(task.deadline, { setZone: true });
-  const local = DateTime.fromISO(deadlineToLocal(task.deadline), { zone: LONDON_ZONE });
-  if (!original.isValid || !local.isValid) return '';
-  const candidates = sortedPossibleOffsets(local);
-  if (candidates.length !== 2) return '';
-  return candidates[0].toMillis() === original.toMillis() ? 'earlier' : 'later';
-}
 
 function formFromTask(task: ProposedTask): TaskFormState {
   return {
@@ -59,8 +26,6 @@ function formFromTask(task: ProposedTask): TaskFormState {
     durationMinutes: String(task.durationMinutes),
     durationWasEstimated: task.durationWasEstimated,
     priority: task.priority,
-    deadline: deadlineToLocal(task.deadline),
-    deadlineOffsetChoice: originalDeadlineOffsetChoice(task),
     fixedStartTime: task.fixedStartTime ?? '',
     canSplit: task.canSplit,
     minimumSessionMinutes: String(task.minimumSessionMinutes),
@@ -84,21 +49,6 @@ function numericError(
 
 function validInteger(value: string): number {
   return Number(value);
-}
-
-function analyzeDeadline(localValue: string): DeadlineState {
-  if (!localValue) return { candidates: [] };
-  const parsed = DateTime.fromISO(localValue, { zone: LONDON_ZONE });
-  if (!parsed.isValid) {
-    return { candidates: [], error: 'Enter a valid Europe/London date and time.' };
-  }
-  if (parsed.toFormat(LOCAL_DEADLINE_FORMAT) !== localValue) {
-    return {
-      candidates: [],
-      error: 'This local time does not exist in Europe/London. Choose another time.',
-    };
-  }
-  return { candidates: sortedPossibleOffsets(parsed) };
 }
 
 export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
@@ -131,17 +81,10 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
     && minimumSession > duration;
   const minimumError = minimumRangeError
     ?? (minimumExceedsDuration ? 'Minimum session cannot exceed duration.' : undefined);
-  const deadlineState = analyzeDeadline(form.deadline);
-  const deadlineIsAmbiguous = deadlineState.candidates.length === 2;
-  const deadlineError = deadlineState.error
-    ?? (deadlineIsAmbiguous && !form.deadlineOffsetChoice
-      ? 'Choose the earlier or later offset for this deadline.'
-      : undefined);
   const valid = form.title.trim().length > 0
     && duration !== undefined
     && minimumSession !== undefined
-    && !minimumError
-    && !deadlineError;
+    && !minimumError;
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -149,14 +92,6 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
       return;
     }
 
-    const unchangedDeadline = form.deadline === deadlineToLocal(task.deadline)
-      && form.deadlineOffsetChoice === originalDeadlineOffsetChoice(task);
-    const selectedDeadline = deadlineIsAmbiguous
-      ? deadlineState.candidates[form.deadlineOffsetChoice === 'later' ? 1 : 0]
-      : deadlineState.candidates[0];
-    const deadline = unchangedDeadline
-      ? task.deadline
-      : selectedDeadline?.toISO() ?? undefined;
     const submittedTask: ProposedTask = {
       ...task,
       title: form.title.trim(),
@@ -164,7 +99,6 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
       durationMinutes: duration,
       durationWasEstimated: form.durationWasEstimated,
       priority: form.priority,
-      deadline,
       fixedStartTime: form.fixedStartTime || undefined,
       canSplit: form.canSplit,
       minimumSessionMinutes: minimumSession,
@@ -187,7 +121,6 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
   const prefix = `task-${task.id}`;
   const durationErrorId = `${prefix}-duration-error`;
   const minimumErrorId = `${prefix}-minimum-error`;
-  const deadlineErrorId = `${prefix}-deadline-error`;
 
   return (
     <form className="task-editor" onSubmit={(event) => void save(event)}>
@@ -273,24 +206,6 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
             </div>
 
             <div>
-              <label htmlFor={`${prefix}-deadline`}>Deadline</label>
-              <input
-                aria-describedby={deadlineError ? deadlineErrorId : undefined}
-                aria-invalid={Boolean(deadlineError)}
-                id={`${prefix}-deadline`}
-                onChange={(event) => updateForm({
-                  deadline: event.target.value,
-                  deadlineOffsetChoice: event.target.value === deadlineToLocal(task.deadline)
-                    ? originalDeadlineOffsetChoice(task)
-                    : '',
-                })}
-                type="datetime-local"
-                value={form.deadline}
-              />
-              {deadlineError && <p className="field-error" id={deadlineErrorId}>{deadlineError}</p>}
-            </div>
-
-            <div>
               <label htmlFor={`${prefix}-fixed-start`}>Fixed start</label>
               <input
                 id={`${prefix}-fixed-start`}
@@ -300,28 +215,6 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
               />
             </div>
           </div>
-
-          {deadlineIsAmbiguous && (
-            <fieldset className="deadline-offset-choice">
-              <legend>Choose which {form.deadline.slice(11, 16)} occurrence</legend>
-              {deadlineState.candidates.map((candidate, index) => {
-                const choice: DeadlineOffsetChoice = index === 0 ? 'earlier' : 'later';
-                return (
-                  <label className="radio-label" key={choice}>
-                    <input
-                      className="deadline-offset-radio"
-                      checked={form.deadlineOffsetChoice === choice}
-                      name={`${prefix}-deadline-offset`}
-                      onChange={() => updateForm({ deadlineOffsetChoice: choice })}
-                      type="radio"
-                      value={choice}
-                    />
-                    {index === 0 ? 'Earlier' : 'Later'} offset ({candidate.toFormat('ZZ')})
-                  </label>
-                );
-              })}
-            </fieldset>
-          )}
 
           <label className="checkbox-label" htmlFor={`${prefix}-split`}>
             <input

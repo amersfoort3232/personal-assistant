@@ -15,14 +15,13 @@ describe('domain schemas', () => {
         durationMinutes: 120,
         durationWasEstimated: true,
         priority: 'high',
-        deadline: '2026-08-01T16:00:00+01:00',
         canSplit: true,
         minimumSessionMinutes: 30,
       }),
     ).toMatchObject({ title: 'Study React', durationMinutes: 120 });
   });
 
-  it('rejects unknown properties and impossible durations', () => {
+  it('rejects unknown properties, including a deadline, and impossible durations', () => {
     expect(() =>
       proposedTaskSchema.parse({
         id: 'task-1',
@@ -32,7 +31,7 @@ describe('domain schemas', () => {
         priority: 'high',
         canSplit: true,
         minimumSessionMinutes: 30,
-        inventedField: 'unsafe',
+        deadline: '2026-08-01T16:00:00+01:00',
       }),
     ).toThrow();
   });

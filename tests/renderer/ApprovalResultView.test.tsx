@@ -217,7 +217,6 @@ describe('approval result view', () => {
       durationMinutes: 60,
       durationWasEstimated: false,
       priority: 'high',
-      deadline: undefined,
       canSplit: false,
       minimumSessionMinutes: 30,
     };
@@ -297,7 +296,6 @@ describe('approval result view', () => {
       durationMinutes: 60,
       durationWasEstimated: false,
       priority: 'high',
-      deadline: undefined,
       canSplit: false,
       minimumSessionMinutes: 30,
     };

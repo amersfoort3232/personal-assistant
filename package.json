@@ -7,9 +7,9 @@
   "main": ".vite/build/main.js",
   "scripts": {
     "start": "set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge start",
-    "package": "set \"PA_E2E_BUILD=\" && set \"PA_PRODUCTION=1\" && set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge package --arch=x64",
+    "package": "node scripts/assert-google-oauth-build-config.mjs && set \"PA_E2E_BUILD=\" && set \"PA_PRODUCTION=1\" && set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge package --arch=x64",
     "package:e2e": "set \"PA_E2E_BUILD=1\" && set \"PA_PRODUCTION=\" && set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge package --arch=x64",
-    "make": "set \"PA_E2E_BUILD=\" && set \"PA_PRODUCTION=1\" && set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge make --arch=x64",
+    "make": "node scripts/assert-google-oauth-build-config.mjs && set \"PA_E2E_BUILD=\" && set \"PA_PRODUCTION=1\" && set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && electron-forge make --arch=x64",
     "typecheck": "tsc --noEmit",
     "test": "set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && vitest run",
     "test:watch": "set \"VITE_CONFIG_NATIVE_IGNORE_WARNING=true\" && vitest",

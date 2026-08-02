@@ -80,7 +80,7 @@ export function ChatPanel({ disabled, interpreting, messages, onSend, resetToken
         </ol>
       ) : (
         <p className="empty-state">
-          Add goals, deadlines, and rough durations. You can correct the interpretation afterwards.
+          Add goals, fixed starts, and rough durations. You can correct the interpretation afterwards.
         </p>
       )}
 

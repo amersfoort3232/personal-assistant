@@ -19,23 +19,11 @@ const PRIORITY = { low: 1, medium: 2, high: 3, urgent: 4 } as const;
 const MINUTE = 60_000;
 const TASK_BUFFER_MINUTES = 15;
 
-function orderedTasks(tasks: ProposedTask[], targetDate: string): ProposedTask[] {
-  const endOfDay = DateTime.fromISO(targetDate, { zone: 'Europe/London' })
-    .set({ hour: 17, minute: 0, second: 0, millisecond: 0 })
-    .toMillis();
-
+function orderedTasks(tasks: ProposedTask[]): ProposedTask[] {
   return tasks
     .map((task, index) => ({ task, index }))
     .sort((left, right) => {
-      const leftDeadline = left.task.deadline
-        ? DateTime.fromISO(left.task.deadline, { setZone: true }).toMillis()
-        : endOfDay;
-      const rightDeadline = right.task.deadline
-        ? DateTime.fromISO(right.task.deadline, { setZone: true }).toMillis()
-        : endOfDay;
-
-      return leftDeadline - rightDeadline
-        || PRIORITY[right.task.priority] - PRIORITY[left.task.priority]
+      return PRIORITY[right.task.priority] - PRIORITY[left.task.priority]
         || Number(left.task.canSplit) - Number(right.task.canSplit)
         || right.task.durationMinutes - left.task.durationMinutes
         || left.index - right.index;
@@ -133,22 +121,6 @@ function fixedStartMs(task: ProposedTask, targetDate: string, timeZone: string):
   return parsed.isValid ? parsed.toMillis() : undefined;
 }
 
-function unscheduledReason(
-  task: ProposedTask,
-  free: NumericInterval[],
-  deadlineMs: number,
-  windowStartMs: number,
-): UnscheduledTask['reason'] {
-  const hasUsableTimeBeforeDeadline = deadlineMs > windowStartMs
-    && free.some((slot) => Math.min(slot.endMs, deadlineMs) > slot.startMs);
-
-  if (task.deadline && !hasUsableTimeBeforeDeadline) {
-    return 'deadline-impossible';
-  }
-  if (free.length === 0) return 'no-free-time';
-  return 'minimum-session-does-not-fit';
-}
-
 export function scheduleTasks(input: {
   targetDate: string;
   tasks: ProposedTask[];
@@ -161,7 +133,6 @@ export function scheduleTasks(input: {
   const blocks: ScheduleBlock[] = [];
   const unscheduledTasks: UnscheduledTask[] = [];
   const windowStartMs = window.start.toMillis();
-  const windowEndMs = window.end.toMillis();
 
   const fixedTasks = input.tasks
     .filter((task) => task.fixedStartTime)
@@ -204,19 +175,10 @@ export function scheduleTasks(input: {
     reserve(free, preBufferStartMs, startMs);
   }
 
-  const flexibleTasks = orderedTasks(
-    input.tasks.filter((candidate) => !candidate.fixedStartTime),
-    input.targetDate,
-  );
+  const flexibleTasks = orderedTasks(input.tasks.filter((candidate) => !candidate.fixedStartTime));
 
   for (const [taskIndex, task] of flexibleTasks.entries()) {
     let remainingMinutes = task.durationMinutes;
-    const deadlineMs = task.deadline
-      ? Math.min(
-          DateTime.fromISO(task.deadline, { setZone: true }).toMillis(),
-          windowEndMs,
-        )
-      : windowEndMs;
     const breakMinutes = task.durationMinutes > input.settings.breakAfterMinutes
       || taskIndex < flexibleTasks.length - 1
       ? TASK_BUFFER_MINUTES
@@ -225,15 +187,14 @@ export function scheduleTasks(input: {
     const contiguousIndex = free.findIndex((slot) => {
       const alignedStartMs = ceilToWholeMinute(slot.startMs, input.settings.timeZone);
       const taskEndMs = alignedStartMs + task.durationMinutes * MINUTE;
-      return taskEndMs <= deadlineMs
-        && taskEndMs + breakMinutes * MINUTE <= slot.endMs;
+      return taskEndMs + breakMinutes * MINUTE <= slot.endMs;
     });
     const fallbackIndex = task.durationMinutes <= input.settings.breakAfterMinutes
       && breakMinutes > 0
       ? free.findIndex((slot) => {
       const alignedStartMs = ceilToWholeMinute(slot.startMs, input.settings.timeZone);
       const taskEndMs = alignedStartMs + task.durationMinutes * MINUTE;
-      return taskEndMs <= deadlineMs && taskEndMs <= slot.endMs;
+      return taskEndMs <= slot.endMs;
     })
       : -1;
 
@@ -264,7 +225,7 @@ export function scheduleTasks(input: {
         const slot = free[intervalIndex];
         const startMs = ceilToWholeMinute(slot.startMs, input.settings.timeZone);
         const availableMinutes = Math.floor(
-          (Math.min(slot.endMs, deadlineMs) - startMs) / MINUTE,
+          (slot.endMs - startMs) / MINUTE,
         );
         const usableTaskMinutes = Math.min(
           availableMinutes,
@@ -304,7 +265,7 @@ export function scheduleTasks(input: {
       unscheduledTasks.push({
         taskId: task.id,
         remainingMinutes,
-        reason: unscheduledReason(task, free, deadlineMs, windowStartMs),
+        reason: free.length === 0 ? 'no-free-time' : 'minimum-session-does-not-fit',
       });
     }
   }

@@ -29,7 +29,6 @@ const task: ProposedTask = {
   durationMinutes: 60,
   durationWasEstimated: false,
   priority: 'high',
-  deadline: undefined,
   canSplit: false,
   minimumSessionMinutes: 30,
 };

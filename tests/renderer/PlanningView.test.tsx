@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import { readFile } from 'node:fs/promises';
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -27,7 +26,6 @@ const estimatedTask: ProposedTask = {
   durationMinutes: 60,
   durationWasEstimated: true,
   priority: 'high',
-  deadline: '2026-08-02T13:30:00+01:00',
   canSplit: true,
   minimumSessionMinutes: 30,
 };
@@ -58,7 +56,6 @@ const siblingTask: ProposedTask = {
   durationMinutes: 30,
   durationWasEstimated: false,
   priority: 'medium',
-  deadline: undefined,
   canSplit: false,
   minimumSessionMinutes: 15,
 };
@@ -295,16 +292,15 @@ describe('planning view', () => {
     }
   });
 
-  it('uses controlled task fields and converts London local deadlines to explicit offsets', async () => {
+  it('uses controlled task fields without a deadline', async () => {
     const { user, bridge } = await loadConversation();
+
+    expect(screen.queryByLabelText(/^deadline$/i)).not.toBeInTheDocument();
 
     const title = screen.getByRole('textbox', { name: /^title$/i });
     await user.clear(title);
     await user.type(title, 'Read TypeScript handbook');
     await user.selectOptions(screen.getByRole('combobox', { name: /priority/i }), 'urgent');
-    fireEvent.change(screen.getByLabelText(/^deadline$/i), {
-      target: { value: '2026-08-02T16:30' },
-    });
     await user.click(screen.getByRole('checkbox', { name: /allow splitting/i }));
     const minimum = screen.getByRole('spinbutton', { name: /minimum session.*minutes/i });
     await user.clear(minimum);
@@ -315,13 +311,12 @@ describe('planning view', () => {
       ...estimatedTask,
       title: 'Read TypeScript handbook',
       priority: 'urgent',
-      deadline: '2026-08-02T16:30:00.000+01:00',
       canSplit: false,
       minimumSessionMinutes: 20,
     });
   });
 
-  it('saves an optional fixed task start time without turning it into a deadline', async () => {
+  it('saves an optional fixed task start time', async () => {
     const { user, bridge } = await loadConversation();
 
     await user.type(screen.getByLabelText(/^fixed start$/i), '11:00');
@@ -331,125 +326,6 @@ describe('planning view', () => {
       ...estimatedTask,
       fixedStartTime: '11:00',
     });
-  });
-
-  it('rejects a nonexistent Europe/London wall time instead of normalizing it', async () => {
-    const { bridge } = await loadConversation();
-    const deadline = screen.getByLabelText(/^deadline$/i);
-
-    fireEvent.change(deadline, { target: { value: '2026-03-29T01:30' } });
-
-    expect(deadline).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByText(/this local time does not exist in europe\/london/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save study typescript/i })).toBeDisabled();
-    expect(bridge.updateTask).not.toHaveBeenCalled();
-  });
-
-  it('requires an explicit earlier or later offset for an ambiguous London wall time', async () => {
-    const { user, bridge } = await loadConversation();
-    const deadline = screen.getByLabelText(/^deadline$/i);
-
-    fireEvent.change(deadline, { target: { value: '2026-10-25T01:30' } });
-
-    const choice = screen.getByRole('group', { name: /choose which 01:30 occurrence/i });
-    const earlier = within(choice).getByRole('radio', { name: /earlier.*\+01:00/i });
-    const later = within(choice).getByRole('radio', { name: /later.*\+00:00/i });
-    expect(earlier).not.toBeChecked();
-    expect(later).not.toBeChecked();
-    expect(deadline).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByRole('button', { name: /save study typescript/i })).toBeDisabled();
-
-    await user.click(later);
-    expect(deadline).toHaveAttribute('aria-invalid', 'false');
-    await user.click(screen.getByRole('button', { name: /save study typescript/i }));
-
-    expect(bridge.updateTask).toHaveBeenCalledWith({
-      ...estimatedTask,
-      deadline: '2026-10-25T01:30:00.000+00:00',
-    });
-  });
-
-  it('preserves the exact original deadline string when the deadline is unchanged', async () => {
-    const exactDeadline = '2026-10-25T01:30:45.123+00:00';
-    const taskWithExactDeadline = { ...estimatedTask, deadline: exactDeadline };
-    const bridge = createBridge({
-      sendMessage: vi.fn().mockResolvedValue({
-        messages: conversation.messages,
-        tasks: [taskWithExactDeadline],
-      }),
-    });
-    const { user } = await loadConversation(bridge);
-
-    const notes = screen.getByRole('textbox', { name: /^notes$/i });
-    await user.clear(notes);
-    await user.type(notes, 'Keep the original instant');
-    await user.click(screen.getByRole('button', { name: /save study typescript/i }));
-
-    expect(bridge.updateTask).toHaveBeenCalledWith({
-      ...taskWithExactDeadline,
-      notes: 'Keep the original instant',
-    });
-  });
-
-  it.each([
-    {
-      original: '2026-10-25T01:30:00+01:00',
-      selection: /later.*\+00:00/i,
-      expected: '2026-10-25T01:30:00.000+00:00',
-    },
-    {
-      original: '2026-10-25T01:30:00+00:00',
-      selection: /earlier.*\+01:00/i,
-      expected: '2026-10-25T01:30:00.000+01:00',
-    },
-  ])('emits the selected offset when changing occurrence from $original', async ({
-    original,
-    selection,
-    expected,
-  }) => {
-    const taskWithAmbiguousDeadline = { ...estimatedTask, deadline: original };
-    const bridge = createBridge({
-      sendMessage: vi.fn().mockResolvedValue({
-        messages: conversation.messages,
-        tasks: [taskWithAmbiguousDeadline],
-      }),
-    });
-    const { user } = await loadConversation(bridge);
-    const choice = screen.getByRole('group', { name: /choose which 01:30 occurrence/i });
-
-    await user.click(within(choice).getByRole('radio', { name: selection }));
-    await user.click(screen.getByRole('button', { name: /save study typescript/i }));
-
-    expect(bridge.updateTask).toHaveBeenCalledWith({
-      ...taskWithAmbiguousDeadline,
-      deadline: expected,
-    });
-  });
-
-  it('renders ambiguous deadline choices as compact radios with accessible label targets and a visible legend', async () => {
-    const styles = await readFile('src/renderer/styles.css', 'utf8');
-    const style = document.createElement('style');
-    style.textContent = styles;
-    document.head.append(style);
-    await loadConversation();
-    fireEvent.change(screen.getByLabelText(/^deadline$/i), {
-      target: { value: '2026-10-25T01:30' },
-    });
-
-    const choice = screen.getByRole('group', { name: /choose which 01:30 occurrence/i });
-    const radio = within(choice).getByRole('radio', { name: /earlier/i });
-    const label = radio.closest('label');
-    const legend = choice.querySelector('legend');
-
-    expect(radio).toHaveClass('deadline-offset-radio');
-    expect(getComputedStyle(radio).width).toBe('18px');
-    expect(getComputedStyle(radio).minHeight).toBe('18px');
-    expect(label).not.toBeNull();
-    expect(getComputedStyle(label as HTMLLabelElement).minHeight).toBe('40px');
-    expect(legend).not.toBeNull();
-    expect(getComputedStyle(legend as HTMLLegendElement).position).toBe('static');
-    expect(getComputedStyle(legend as HTMLLegendElement).width).not.toBe('1px');
-    style.remove();
   });
 
   it('keeps dirty sibling edits while saved and clean editors accept the server snapshot', async () => {
