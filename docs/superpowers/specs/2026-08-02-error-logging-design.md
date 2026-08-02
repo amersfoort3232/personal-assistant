@@ -34,7 +34,7 @@ On the target machine, the current file resolves to:
 
 The username is not hard-coded, so the repository remains portable.
 
-The current file may grow to 5 MiB. Before an append would exceed that limit, the logger removes the previous backup if it exists, renames the current file to the backup filename, and starts a new current file. Bounded entries ensure that one entry cannot exceed the rotation limit. Total retained storage is approximately 10 MiB.
+The current file may grow to 5 MiB. The `electron-log` file transport is configured with that maximum size and a custom synchronous `archiveLogFn`. On rotation, the callback removes the previous backup if it exists, renames the current file to the backup filename, and starts a new current file. Bounded entries ensure that one entry cannot exceed the rotation limit. Total retained storage is approximately 10 MiB.
 
 ## Entry Format
 
@@ -63,9 +63,13 @@ The logging API accepts an error and fixed operation metadata only. It never acc
 
 ### Error logger
 
-A focused main-process module owns directory creation, safe entry construction, serialization, rotation, and append operations. It maintains a promise queue so concurrent errors are written in order and cannot interleave. Its public logging method contains its own failure boundary and never rejects; logging failures cannot interrupt the application or recursively invoke the logger.
+A focused main-process module wraps a pinned `electron-log` 5.x production dependency. The wrapper owns safe entry construction, bounding, sanitization, JSON serialization, and the fail-open boundary. `electron-log` owns directory creation, synchronous file appends, and size-based rotation.
 
-The module depends on an injected filesystem/path configuration and clock where useful for deterministic unit tests. Production wiring supplies the Documents-based paths.
+The file transport uses `resolvePathFn` to select the Documents-based current path, `maxSize` for the 5 MiB limit, `archiveLogFn` for the single exact backup path, and a text-only format so each supplied JSON string remains one JSON-lines entry. Console and remote transports are disabled.
+
+The application does not override `console`, pass arbitrary objects to `electron-log`, import its renderer logger, or enable its unrestricted automatic error and event capture. All entries continue to flow through the application's sanitized wrapper and trusted renderer diagnostic channel.
+
+The wrapper depends on an injected transport port and clock for deterministic unit tests. Production wiring adapts the configured `electron-log` main-process instance to that port.
 
 ### IPC operation failures
 
@@ -90,7 +94,7 @@ Process termination entries contain Electron-provided reason, exit code, and pro
 
 ## Error Handling
 
-File operations are fail-open. Directory creation, stat, rotation, rename, and append errors are contained inside the logger. The user-facing operation continues to return its original success or failure result, and the logger never replaces the original error.
+Logging is fail-open. The wrapper contains transport failures, including directory creation, rotation, rename, and append failures. The user-facing operation continues to return its original success or failure result, and the logger never replaces the original error.
 
 The existing UI continues to show safe public errors. Logging does not make stack traces or internal failures visible in the renderer.
 
@@ -101,15 +105,15 @@ Implementation follows test-driven development. Automated tests cover:
 - JSON-lines serialization of expected and unexpected errors;
 - message and stack bounds;
 - exclusion of arbitrary properties and supplied payloads;
-- ordered concurrent appends;
+- transport configuration for the exact current path, 5 MiB size, and exact backup path;
 - rotation at the 5 MiB boundary and single-backup retention;
-- directory and write failure isolation;
+- transport failure isolation;
 - IPC operation logging without arguments;
 - trusted, schema-validated renderer diagnostic forwarding;
 - rejection of untrusted renderer diagnostic reports; and
 - startup and Electron process-event wiring.
 
-After focused tests pass, verification runs TypeScript checking, the full unit/integration suite, Electron E2E tests, installer creation, production ASAR inspection, and fuse verification.
+After focused tests pass, verification runs TypeScript checking, the full unit/integration suite, Electron E2E tests, production dependency inspection, installer creation, production ASAR inspection, and fuse verification.
 
 ## Documentation
 
