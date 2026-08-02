@@ -193,6 +193,29 @@ describe('schedule review', () => {
 
   });
 
+  it('keeps nested Space and Enter actions native while drag uses a dedicated activator', async () => {
+    const { bridge, user } = await renderSchedule();
+    const block = screen.getByRole('group', { name: /study typescript.*task/i });
+    const selection = screen.getByRole('checkbox', { name: /select study typescript/i });
+    const remove = screen.getByRole('button', { name: /remove study typescript/i });
+    const dragHandle = screen.getByRole('button', { name: /drag study typescript/i });
+
+    selection.focus();
+    await user.keyboard(' ');
+    await waitFor(() => expect(bridge.updateSchedule).toHaveBeenCalledWith([
+      { ...taskBlock, selected: false },
+      breakBlock,
+    ]));
+
+    vi.mocked(bridge.updateSchedule).mockClear();
+    remove.focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(bridge.updateSchedule).toHaveBeenCalledWith([breakBlock]));
+
+    expect(block).toHaveAttribute('tabindex', '0');
+    expect(dragHandle).toHaveAttribute('tabindex', '0');
+  });
+
   it('does not move a focused block beyond the 09:00–17:00 window', async () => {
     const atStart = acceptedSchedule([{
       ...taskBlock,
@@ -213,19 +236,20 @@ describe('schedule review', () => {
   it('converts a one-row pointer drag into a 15-minute start/end shift', async () => {
     const { bridge, user } = await renderSchedule();
     const block = screen.getByRole('group', { name: /study typescript.*task/i });
+    const dragHandle = screen.getByRole('button', { name: /drag study typescript/i });
 
     await user.pointer({
       coords: { clientX: 100, clientY: 100 },
       keys: '[MouseLeft>]',
-      target: block,
+      target: dragHandle,
     });
-    await user.pointer({ coords: { clientX: 100, clientY: 103 }, target: block });
+    await user.pointer({ coords: { clientX: 100, clientY: 103 }, target: dragHandle });
     expect(block).toHaveClass('is-dragging');
-    await user.pointer({ coords: { clientX: 100, clientY: 124 }, target: block });
+    await user.pointer({ coords: { clientX: 100, clientY: 124 }, target: dragHandle });
     await user.pointer({
       coords: { clientX: 100, clientY: 124 },
       keys: '[/MouseLeft]',
-      target: block,
+      target: dragHandle,
     });
 
     await waitFor(() => expect(bridge.updateSchedule).toHaveBeenCalledWith([
@@ -236,6 +260,63 @@ describe('schedule review', () => {
       },
       breakBlock,
     ]));
+  });
+
+  it('renders UTC summer busy instants in Europe/London', async () => {
+    const summerSchedule = {
+      ...schedule,
+      busyPeriods: [{
+        start: '2026-08-02T08:30:00Z',
+        end: '2026-08-02T09:30:00Z',
+        sourceCalendarId: 'primary',
+      }],
+    };
+    await renderSchedule(createBridge({
+      generateSchedule: vi.fn().mockResolvedValue(summerSchedule),
+    }));
+
+    expect(screen.getByRole('group', {
+      name: /busy period from 09:30 to 10:30, locked/i,
+    })).toHaveStyle({ top: '48px' });
+  });
+
+  it('clips and skips busy instants against the London window on the DST-change date', async () => {
+    const dstSchedule = {
+      ...schedule,
+      targetDate: '2026-03-29',
+      blocks: [],
+      busyPeriods: [
+        {
+          start: '2026-03-29T07:30:00Z',
+          end: '2026-03-29T08:30:00Z',
+          sourceCalendarId: 'primary',
+        },
+        {
+          start: '2026-03-29T15:30:00Z',
+          end: '2026-03-29T16:30:00Z',
+          sourceCalendarId: 'primary',
+        },
+        {
+          start: '2026-03-29T06:00:00Z',
+          end: '2026-03-29T07:00:00Z',
+          sourceCalendarId: 'primary',
+        },
+      ],
+      unscheduledTasks: [],
+    };
+    await renderSchedule(createBridge({
+      generateSchedule: vi.fn().mockResolvedValue(dstSchedule),
+    }));
+
+    expect(screen.getByRole('group', {
+      name: /busy period from 09:00 to 09:30, locked/i,
+    })).toHaveStyle({ top: '0px', minHeight: '48px' });
+    expect(screen.getByRole('group', {
+      name: /busy period from 16:30 to 17:00, locked/i,
+    })).toBeInTheDocument();
+    expect(screen.queryByRole('group', {
+      name: /busy period from 07:00 to 08:00, locked/i,
+    })).not.toBeInTheDocument();
   });
 
   it('resizes in 15-minute increments while time fields and handles clamp to 09:00–17:00', async () => {
@@ -385,9 +466,11 @@ describe('schedule review', () => {
     const taskGroup = screen.getByRole('group', { name: /study typescript.*task.*09:00.*10:00/i });
     const checkbox = screen.getByRole('checkbox', { name: /select study typescript/i });
     const remove = screen.getByRole('button', { name: /remove study typescript/i });
+    const dragHandle = screen.getByRole('button', { name: /drag study typescript/i });
     expect(taskGroup).toHaveAttribute('tabindex', '0');
     expect(getComputedStyle(checkbox.closest('label') as HTMLLabelElement).minHeight).toBe('40px');
     expect(getComputedStyle(remove).minHeight).toBe('40px');
+    expect(getComputedStyle(dragHandle).minHeight).toBe('40px');
     expect(styles).toMatch(/\.timeline-block[^}]*:focus-visible/s);
     style.remove();
   });

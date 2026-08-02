@@ -27,7 +27,14 @@ export function TimelineBlock({
   style,
 }: TimelineBlockProps) {
   const [title, setTitle] = useState(block.title);
-  const { attributes, isDragging, listeners, setNodeRef, transform } = useDraggable({
+  const {
+    attributes,
+    isDragging,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+  } = useDraggable({
     id: block.id,
     disabled: busy,
   });
@@ -52,7 +59,6 @@ export function TimelineBlock({
       if (!busy) onShift(event.key === 'ArrowUp' ? -15 : 15);
       return;
     }
-    listeners?.onKeyDown?.(event as never);
   };
 
   const start = timeValue(block.start);
@@ -61,8 +67,6 @@ export function TimelineBlock({
 
   return (
     <div
-      {...attributes}
-      {...listeners}
       aria-label={`${block.title}, ${block.kind}, ${start} to ${end}. Alt plus Arrow Up or Down moves by 15 minutes.`}
       className={`timeline-block timeline-block-${block.kind}${isDragging ? ' is-dragging' : ''}`}
       onKeyDown={handleKeyDown}
@@ -83,7 +87,17 @@ export function TimelineBlock({
           />
           <span>{block.kind === 'task' ? 'Task' : 'Break'}</span>
         </label>
-        <span aria-hidden="true" className="drag-hint">Drag · Alt+↑/↓</span>
+        <button
+          {...attributes}
+          {...listeners}
+          aria-label={`Drag ${block.title}`}
+          className="drag-handle"
+          disabled={busy}
+          ref={setActivatorNodeRef}
+          type="button"
+        >
+          Drag · Alt+↑/↓
+        </button>
       </div>
 
       <label className="timeline-field">

@@ -1,6 +1,7 @@
 import type {
   ApprovalResult,
   ConversationSnapshot,
+  ScheduleBlock,
   ScheduleSnapshot,
   SetupStatus,
 } from '../shared/domain';
@@ -13,6 +14,7 @@ export type RendererState = {
   conversation?: ConversationSnapshot;
   schedule?: ScheduleSnapshot;
   approval?: ApprovalResult;
+  approvalBlocks?: ScheduleBlock[];
   busy: boolean;
   error?: string;
   conflictAnnouncement?: string;
@@ -31,12 +33,13 @@ export type AppAction =
   | { type: 'conversationUpdated'; conversation: ConversationSnapshot }
   | { type: 'scheduleGenerated'; schedule: ScheduleSnapshot }
   | { type: 'scheduleUpdated'; schedule: ScheduleSnapshot }
-  | { type: 'approvalConflict'; schedule: ScheduleSnapshot }
+  | { type: 'approvalConflict'; retry: boolean; schedule: ScheduleSnapshot }
   | { type: 'approvalCompleted'; approval: Extract<ApprovalResult, { status: 'completed' }> }
   | { type: 'approvalRetried'; approval: Extract<ApprovalResult, { status: 'completed' }> }
   | { type: 'sessionReset' };
 
 export const CONFLICT_ANNOUNCEMENT = 'Your calendar changed after this schedule was created. No events were added. Review the revised schedule.';
+export const RETRY_CONFLICT_ANNOUNCEMENT = 'Your calendar changed while retrying. No retry events were added. Earlier results remain unchanged. Review the revised schedule.';
 
 export function isSetupComplete(setup: SetupStatus): boolean {
   return setup.hasDeepSeekApiKey && setup.googleConnected && setup.calendarReady;
@@ -65,6 +68,7 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
         conversation: action.conversation,
         schedule: undefined,
         approval: undefined,
+        approvalBlocks: undefined,
         busy: false,
         error: undefined,
         conflictAnnouncement: undefined,
@@ -75,11 +79,34 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
         view: 'schedule',
         schedule: action.schedule,
         approval: undefined,
+        approvalBlocks: undefined,
         busy: false,
         error: undefined,
         conflictAnnouncement: undefined,
       };
-    case 'scheduleUpdated':
+    case 'scheduleUpdated': {
+      if (state.approval?.status === 'completed') {
+        const retainedUnresolvedIds = new Set(action.schedule.blocks.map((block) => block.id));
+        const results = state.approval.results.filter((result) => (
+          result.status !== 'failed' || retainedUnresolvedIds.has(result.blockId)
+        ));
+        const retainedResultIds = new Set(results.map((result) => result.blockId));
+        const blocks = new Map((state.approvalBlocks ?? [])
+          .filter((block) => retainedResultIds.has(block.id))
+          .map((block) => [block.id, block]));
+        for (const block of action.schedule.blocks) blocks.set(block.id, block);
+        const hasFailures = results.some((result) => result.status === 'failed');
+        return {
+          ...state,
+          view: hasFailures ? 'schedule' : 'result',
+          schedule: action.schedule,
+          approval: { status: 'completed', results },
+          approvalBlocks: [...blocks.values()],
+          busy: false,
+          error: undefined,
+          conflictAnnouncement: hasFailures ? state.conflictAnnouncement : undefined,
+        };
+      }
       return {
         ...state,
         view: 'schedule',
@@ -87,21 +114,26 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
         busy: false,
         error: undefined,
       };
+    }
     case 'approvalConflict':
       return {
         ...state,
         view: 'schedule',
         schedule: action.schedule,
-        approval: undefined,
+        approval: action.retry ? state.approval : undefined,
+        approvalBlocks: action.retry ? state.approvalBlocks : undefined,
         busy: false,
         error: undefined,
-        conflictAnnouncement: CONFLICT_ANNOUNCEMENT,
+        conflictAnnouncement: action.retry
+          ? RETRY_CONFLICT_ANNOUNCEMENT
+          : CONFLICT_ANNOUNCEMENT,
       };
     case 'approvalCompleted':
       return {
         ...state,
         view: 'result',
         approval: action.approval,
+        approvalBlocks: state.schedule?.blocks,
         busy: false,
         error: undefined,
         conflictAnnouncement: undefined,
@@ -109,6 +141,8 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
     case 'approvalRetried': {
       const previous = state.approval?.status === 'completed' ? state.approval.results : [];
       const retriedIds = new Set(action.approval.results.map((result) => result.blockId));
+      const blocks = new Map(state.approvalBlocks?.map((block) => [block.id, block]) ?? []);
+      for (const block of state.schedule?.blocks ?? []) blocks.set(block.id, block);
       return {
         ...state,
         view: 'result',
@@ -119,6 +153,7 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
             ...action.approval.results,
           ],
         },
+        approvalBlocks: [...blocks.values()],
         busy: false,
         error: undefined,
         conflictAnnouncement: undefined,
@@ -131,6 +166,7 @@ export function appReducer(state: RendererState, action: AppAction): RendererSta
         conversation: undefined,
         schedule: undefined,
         approval: undefined,
+        approvalBlocks: undefined,
         busy: false,
         error: undefined,
         conflictAnnouncement: undefined,

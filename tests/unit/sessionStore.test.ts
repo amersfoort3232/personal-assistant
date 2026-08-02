@@ -42,6 +42,11 @@ describe('SessionStore', () => {
       }],
       warnings: ['Some work does not fit. No task was moved to another date.'],
     });
+    store.replaceApprovalAttempt(store.getSnapshot().draftSchedule, [{
+      blockId: 'block-1',
+      status: 'failed',
+      errorCode: 'CALENDAR_UNAVAILABLE',
+    }]);
 
     store.clearSchedule();
 
@@ -85,6 +90,11 @@ describe('SessionStore', () => {
       unscheduledTasks: [],
       warnings: [],
     });
+    store.replaceApprovalAttempt([], [{
+      blockId: 'block-1',
+      status: 'failed',
+      errorCode: 'CALENDAR_UNAVAILABLE',
+    }]);
 
     store.reset();
 

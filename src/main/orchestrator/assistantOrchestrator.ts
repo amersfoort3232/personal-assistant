@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { DateTime } from 'luxon';
 import type {
   AppSettings,
   ApprovalResult,
@@ -19,6 +20,11 @@ import {
   scheduleBlockListSchema,
 } from '../../shared/schemas';
 import { createGoogleEventId } from '../google/eventId';
+import {
+  buildWorkingWindow,
+  deriveFreeIntervals,
+  mergeBusyPeriods,
+} from '../scheduler/intervals';
 import { scheduleTasks } from '../scheduler/scheduleTasks';
 import { validateDraft } from '../scheduler/validateDraft';
 
@@ -30,13 +36,18 @@ type SessionSnapshot = {
   unscheduledTasks: UnscheduledTask[];
   warnings: string[];
   targetDate: string | undefined;
+  approvalAttempt?: {
+    blocks: ScheduleBlock[];
+    results: EventCreationResult[];
+  };
 };
 
 type SessionPort = {
   getSnapshot(): SessionSnapshot;
   appendMessage(message: ChatMessage): void;
   replaceTasks(tasks: ProposedTask[]): void;
-  replaceSchedule(schedule: ScheduleSnapshot): void;
+  replaceSchedule(schedule: ScheduleSnapshot, preserveApprovalAttempt?: boolean): void;
+  replaceApprovalAttempt(blocks: ScheduleBlock[], results: EventCreationResult[]): void;
   clearSchedule(): void;
   reset(): void;
 };
@@ -73,6 +84,7 @@ type SettingsPort = {
 };
 
 const UNSCHEDULED_TASKS_WARNING = 'Some work does not fit. No task was moved to another date.';
+const UNSCHEDULED_RETRY_WARNING = 'Some retry events do not fit around current calendar availability.';
 
 function validationError(message: string): AppError {
   return new AppError('VALIDATION_FAILED', message, false);
@@ -100,6 +112,141 @@ function assertSelectedTaskReferences(
   ))) {
     throw validationError('Selected task block references a missing task.');
   }
+}
+
+function assertValidAutomaticSchedule(input: {
+  schedule: ScheduleSnapshot;
+  busyPeriods: BusyPeriod[];
+  tasks: ProposedTask[];
+  settings: AppSettings;
+  fallbackMessage: string;
+}): void {
+  const parsed = scheduleBlockListSchema.safeParse(input.schedule.blocks);
+  if (!parsed.success) throw validationError(input.fallbackMessage);
+  assertSelectedTaskReferences(parsed.data, input.tasks);
+
+  const validation = validateDraft(
+    parsed.data,
+    input.busyPeriods,
+    input.schedule.targetDate,
+    input.settings,
+  );
+  if (!validation.valid) {
+    throw validationError(validation.errors[0]?.message ?? input.fallbackMessage);
+  }
+}
+
+function settledAttemptBusyPeriods(
+  attempt: SessionSnapshot['approvalAttempt'],
+): BusyPeriod[] {
+  if (!attempt) return [];
+  const settledIds = new Set(attempt.results
+    .filter((result) => result.status !== 'failed')
+    .map((result) => result.blockId));
+  return attempt.blocks
+    .filter((block) => settledIds.has(block.id))
+    .map((block) => ({
+      start: block.start,
+      end: block.end,
+      sourceCalendarId: 'ephemeral-approval-attempt',
+    }));
+}
+
+function mergeApprovalAttempt(
+  previous: NonNullable<SessionSnapshot['approvalAttempt']> | undefined,
+  blocks: ScheduleBlock[],
+  results: EventCreationResult[],
+): NonNullable<SessionSnapshot['approvalAttempt']> {
+  const mergedBlocks = new Map(previous?.blocks.map((block) => [block.id, block]) ?? []);
+  const mergedResults = new Map(previous?.results.map((result) => [result.blockId, result]) ?? []);
+  for (const block of blocks) mergedBlocks.set(block.id, block);
+  for (const result of results) mergedResults.set(result.blockId, result);
+  return { blocks: [...mergedBlocks.values()], results: [...mergedResults.values()] };
+}
+
+function reconcileApprovalAttemptDraft(
+  previous: NonNullable<SessionSnapshot['approvalAttempt']>,
+  unresolvedBlocks: ScheduleBlock[],
+): NonNullable<SessionSnapshot['approvalAttempt']> {
+  const unresolvedIds = new Set(unresolvedBlocks.map((block) => block.id));
+  const retainedResults = previous.results.filter((result) => (
+    result.status !== 'failed' || unresolvedIds.has(result.blockId)
+  ));
+  const retainedIds = new Set(retainedResults.map((result) => result.blockId));
+  const blocks = new Map(previous.blocks
+    .filter((block) => retainedIds.has(block.id))
+    .map((block) => [block.id, block]));
+  for (const block of unresolvedBlocks) blocks.set(block.id, block);
+  return { blocks: [...blocks.values()], results: retainedResults };
+}
+
+function reflowRetryBlocks(input: {
+  blocks: ScheduleBlock[];
+  busyPeriods: BusyPeriod[];
+  occupiedResults: BusyPeriod[];
+  settings: AppSettings;
+  targetDate: string;
+}): ScheduleSnapshot {
+  const window = buildWorkingWindow(input.targetDate, input.settings);
+  const occupied = mergeBusyPeriods(
+    [...input.busyPeriods, ...input.occupiedResults],
+    window,
+  );
+  const free = deriveFreeIntervals(window, occupied);
+  const scheduled: ScheduleBlock[] = [];
+  const unscheduledMinutes = new Map<string, number>();
+  let omittedBreaks = 0;
+
+  const ordered = input.blocks
+    .map((block, index) => ({
+      block,
+      index,
+      startMs: DateTime.fromISO(block.start, { setZone: true }).toMillis(),
+      durationMs: DateTime.fromISO(block.end, { setZone: true }).toMillis()
+        - DateTime.fromISO(block.start, { setZone: true }).toMillis(),
+    }))
+    .sort((left, right) => left.startMs - right.startMs || left.index - right.index);
+
+  for (const { block, durationMs } of ordered) {
+    const slotIndex = free.findIndex((slot) => slot.endMs - slot.startMs >= durationMs);
+    if (slotIndex < 0) {
+      if (block.taskId) {
+        const durationMinutes = durationMs / 60_000;
+        unscheduledMinutes.set(
+          block.taskId,
+          (unscheduledMinutes.get(block.taskId) ?? 0) + durationMinutes,
+        );
+      } else {
+        omittedBreaks += 1;
+      }
+      continue;
+    }
+
+    const slot = free[slotIndex];
+    const startMs = slot.startMs;
+    const endMs = startMs + durationMs;
+    scheduled.push({
+      ...block,
+      start: DateTime.fromMillis(startMs, { zone: input.settings.timeZone }).toISO()!,
+      end: DateTime.fromMillis(endMs, { zone: input.settings.timeZone }).toISO()!,
+      selected: true,
+    });
+    if (endMs === slot.endMs) free.splice(slotIndex, 1);
+    else free[slotIndex] = { startMs: endMs, endMs: slot.endMs };
+  }
+
+  const unscheduledTasks: UnscheduledTask[] = [...unscheduledMinutes].map(([
+    taskId,
+    remainingMinutes,
+  ]) => ({ taskId, remainingMinutes, reason: 'no-free-time' }));
+  const omittedAny = unscheduledTasks.length > 0 || omittedBreaks > 0;
+  return {
+    targetDate: input.targetDate,
+    busyPeriods: input.busyPeriods,
+    blocks: scheduled.sort((left, right) => left.start.localeCompare(right.start)),
+    unscheduledTasks,
+    warnings: omittedAny ? [UNSCHEDULED_RETRY_WARNING] : [],
+  };
 }
 
 export class AssistantOrchestrator {
@@ -236,6 +383,13 @@ export class AssistantOrchestrator {
       const settings = await this.settings.load();
       const busyPeriods = await this.calendar.getBusyPeriods(targetDate, settings);
       const schedule = scheduleTasks({ targetDate, tasks: state.tasks, busyPeriods, settings });
+      assertValidAutomaticSchedule({
+        schedule,
+        busyPeriods,
+        tasks: state.tasks,
+        settings,
+        fallbackMessage: 'Generated schedule is invalid.',
+      });
       this.session.replaceSchedule(schedule);
       return schedule;
     });
@@ -249,10 +403,21 @@ export class AssistantOrchestrator {
       const parsed = scheduleBlockListSchema.safeParse(blocks);
       if (!parsed.success) throw validationError('Schedule blocks are invalid.');
       assertSelectedTaskReferences(parsed.data, state.tasks);
+      const retryAttempt = state.approvalAttempt?.results.some((result) => result.status === 'failed')
+        ? state.approvalAttempt
+        : undefined;
+      if (retryAttempt) {
+        const unresolvedIds = new Set(retryAttempt.results
+          .filter((result) => result.status === 'failed')
+          .map((result) => result.blockId));
+        if (parsed.data.some((block) => !unresolvedIds.has(block.id))) {
+          throw validationError('Only unresolved retry blocks can be edited.');
+        }
+      }
       const settings = await this.settings.load();
       const validation = validateDraft(
         parsed.data,
-        state.busyPeriods,
+        [...state.busyPeriods, ...settledAttemptBusyPeriods(retryAttempt)],
         state.targetDate,
         settings,
       );
@@ -271,7 +436,11 @@ export class AssistantOrchestrator {
         unscheduledTasks: state.unscheduledTasks,
         warnings,
       };
-      this.session.replaceSchedule(schedule);
+      this.session.replaceSchedule(schedule, Boolean(retryAttempt));
+      if (retryAttempt) {
+        const reconciledAttempt = reconcileApprovalAttemptDraft(retryAttempt, parsed.data);
+        this.session.replaceApprovalAttempt(reconciledAttempt.blocks, reconciledAttempt.results);
+      }
       return schedule;
     });
   }
@@ -292,6 +461,15 @@ export class AssistantOrchestrator {
       const knownIds = new Set(state.draftSchedule.map((block) => block.id));
       if (blockIds.some((id) => !knownIds.has(id))) {
         throw validationError('Selected schedule block does not exist.');
+      }
+      const approvalAttempt = state.approvalAttempt;
+      if (approvalAttempt) {
+        const unresolvedIds = new Set(approvalAttempt.results
+          .filter((result) => result.status === 'failed')
+          .map((result) => result.blockId));
+        if (blockIds.some((id) => !unresolvedIds.has(id))) {
+          throw validationError('Only failed schedule blocks can be retried.');
+        }
       }
 
       const settings = await this.settings.load();
@@ -314,7 +492,7 @@ export class AssistantOrchestrator {
 
       const validation = validateDraft(
         parsed.data,
-        state.busyPeriods,
+        [...state.busyPeriods, ...settledAttemptBusyPeriods(approvalAttempt)],
         state.targetDate,
         settings,
       );
@@ -323,25 +501,44 @@ export class AssistantOrchestrator {
       }
 
       const latestBusy = await this.calendar.getBusyPeriods(state.targetDate, settings);
+      const settledBusy = settledAttemptBusyPeriods(approvalAttempt);
       const latestValidation = validateDraft(
         parsed.data,
-        latestBusy,
+        [...latestBusy, ...settledBusy],
         state.targetDate,
         settings,
       );
       if (!latestValidation.valid) {
-        const revised = scheduleTasks({
-          targetDate: state.targetDate,
+        const revised = approvalAttempt
+          ? reflowRetryBlocks({
+              blocks: parsed.data.filter((block) => block.selected),
+              busyPeriods: latestBusy,
+              occupiedResults: settledBusy,
+              settings,
+              targetDate: state.targetDate,
+            })
+          : scheduleTasks({
+              targetDate: state.targetDate,
+              tasks: state.tasks,
+              busyPeriods: latestBusy,
+              settings,
+            });
+        assertValidAutomaticSchedule({
+          schedule: revised,
+          busyPeriods: [...latestBusy, ...settledBusy],
           tasks: state.tasks,
-          busyPeriods: latestBusy,
           settings,
+          fallbackMessage: approvalAttempt
+            ? 'Revised retry schedule is invalid.'
+            : 'Revised schedule is invalid.',
         });
-        this.session.replaceSchedule(revised);
+        this.session.replaceSchedule(revised, Boolean(approvalAttempt));
         return { status: 'conflict-detected', schedule: revised };
       }
 
       const results: EventCreationResult[] = [];
-      for (const block of parsed.data.filter((item) => item.selected)) {
+      const attemptedBlocks = parsed.data.filter((item) => item.selected);
+      for (const block of attemptedBlocks) {
         const proposedTask = block.kind === 'task'
           ? state.tasks.find((item) => item.id === block.taskId)!
           : undefined;
@@ -360,6 +557,8 @@ export class AssistantOrchestrator {
           });
         }
       }
+      const mergedAttempt = mergeApprovalAttempt(approvalAttempt, attemptedBlocks, results);
+      this.session.replaceApprovalAttempt(mergedAttempt.blocks, mergedAttempt.results);
       return { status: 'completed', results };
     });
   }

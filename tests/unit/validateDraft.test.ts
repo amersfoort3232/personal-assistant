@@ -86,6 +86,44 @@ describe('validateDraft', () => {
     });
   });
 
+  it('rejects a selected block shorter than five minutes', () => {
+    expect(validateDraft([
+      block({ end: '2026-08-01T09:01:00+01:00' }),
+    ], [], targetDate, settings)).toEqual({
+      valid: false,
+      errors: [{ blockId: 'block-1', message: 'Block must be at least five minutes long.' }],
+      warnings: [],
+    });
+  });
+
+  it('accepts arbitrary whole-minute boundaries and durations from the automatic scheduler', () => {
+    expect(validateDraft([
+      block({ id: 'task', start: '2026-08-01T09:03:00+01:00', end: '2026-08-01T10:04:00+01:00' }),
+      block({
+        id: 'break',
+        kind: 'break',
+        taskId: undefined,
+        title: 'Break',
+        start: '2026-08-01T10:04:00+01:00',
+        end: '2026-08-01T10:14:00+01:00',
+      }),
+    ], [], targetDate, settings)).toEqual({ valid: true, errors: [], warnings: [] });
+  });
+
+  it.each([
+    ['non-zero seconds', '2026-08-01T09:00:30+01:00', '2026-08-01T10:00:30+01:00'],
+    ['non-zero milliseconds', '2026-08-01T09:00:00.001+01:00', '2026-08-01T10:00:00.001+01:00'],
+  ])('rejects selected block %s outside whole-minute boundaries', (_name, start, end) => {
+    expect(validateDraft([block({ start, end })], [], targetDate, settings)).toEqual({
+      valid: false,
+      errors: [{
+        blockId: 'block-1',
+        message: 'Block times and duration must use whole-minute increments.',
+      }],
+      warnings: [],
+    });
+  });
+
   it('rejects malformed selected timestamps without throwing', () => {
     expect(validateDraft([
       block({ start: 'not-a-timestamp' as never }),

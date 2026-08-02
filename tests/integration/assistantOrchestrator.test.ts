@@ -318,6 +318,74 @@ describe('AssistantOrchestrator', () => {
     expect(harness.calendar.insertCalls).toHaveLength(1);
   });
 
+  it('generates, validates, and approves a supported 61-minute task with its break', async () => {
+    const harness = createHarness();
+    harness.calendar.busyResponses = [[], []];
+    const draft = await createDraft(harness, [task({
+      id: 'sixty-one',
+      title: 'Sixty one minute task',
+      durationMinutes: 61,
+    })]);
+
+    const result = await harness.orchestrator.approveSchedule(
+      draft.blocks.map((block) => block.id),
+    );
+
+    expect(draft.blocks.map((block) => ({
+      kind: block.kind,
+      start: block.start,
+      end: block.end,
+    }))).toEqual([
+      {
+        kind: 'task',
+        start: '2026-08-03T09:00:00.000+01:00',
+        end: '2026-08-03T10:01:00.000+01:00',
+      },
+      {
+        kind: 'break',
+        start: '2026-08-03T10:01:00.000+01:00',
+        end: '2026-08-03T10:11:00.000+01:00',
+      },
+    ]);
+    expect(result.status).toBe('completed');
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual(
+      draft.blocks.map((block) => block.id),
+    );
+  });
+
+  it('generates a whole-minute draft after second-bearing busy time and approves it unchanged', async () => {
+    const harness = createHarness();
+    const secondBearingBusy = [busy(
+      '2026-08-03T09:00:00+01:00',
+      '2026-08-03T12:03:30+01:00',
+    )];
+    harness.calendar.busyResponses = [secondBearingBusy, secondBearingBusy];
+
+    const draft = await createDraft(harness);
+
+    expect(draft.blocks[0]).toMatchObject({
+      start: '2026-08-03T12:04:00.000+01:00',
+      end: '2026-08-03T13:04:00.000+01:00',
+    });
+    await expect(
+      harness.orchestrator.approveSchedule([draft.blocks[0].id]),
+    ).resolves.toMatchObject({ status: 'completed' });
+    expect(harness.calendar.insertCalls[0]?.block).toEqual(draft.blocks[0]);
+  });
+
+  it('does not replace an accepted draft when ordinary generation produces an invalid schedule', async () => {
+    const harness = createHarness();
+    const accepted = await createDraft(harness);
+    harness.session.replaceTasks([task({ durationMinutes: 60.5 })]);
+    const beforeGeneration = harness.session.getSnapshot();
+
+    await expect(harness.orchestrator.generateSchedule(TARGET_DATE)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      retryable: false,
+    });
+    expect(harness.session.getSnapshot()).toEqual(beforeGeneration);
+  });
+
   it('stores and returns a revised draft without inserting when fresh availability conflicts', async () => {
     const harness = createHarness();
     const draft = await createDraft(harness);
@@ -332,6 +400,46 @@ describe('AssistantOrchestrator', () => {
     expect(result.schedule.blocks[0].start).not.toBe(draft.blocks[0].start);
     expect(harness.calendar.insertCalls).toEqual([]);
     expect(harness.session.getSnapshot().draftSchedule).toEqual(result.schedule.blocks);
+  });
+
+  it('returns a whole-minute initial conflict revision after second-bearing busy time and approves it unchanged', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    const secondBearingBusy = [busy(
+      '2026-08-03T09:00:00+01:00',
+      '2026-08-03T12:03:30+01:00',
+    )];
+    harness.calendar.busyResponses = [secondBearingBusy, secondBearingBusy];
+
+    const conflict = await harness.orchestrator.approveSchedule([draft.blocks[0].id]);
+
+    expect(conflict.status).toBe('conflict-detected');
+    if (conflict.status !== 'conflict-detected') throw new Error('Expected conflict result');
+    expect(conflict.schedule.blocks[0]).toMatchObject({
+      start: '2026-08-03T12:04:00.000+01:00',
+      end: '2026-08-03T13:04:00.000+01:00',
+    });
+    await expect(
+      harness.orchestrator.approveSchedule([conflict.schedule.blocks[0].id]),
+    ).resolves.toMatchObject({ status: 'completed' });
+    expect(harness.calendar.insertCalls[0]?.block).toEqual(conflict.schedule.blocks[0]);
+  });
+
+  it('does not replace an accepted draft when an initial conflict revision is invalid', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    harness.session.replaceTasks([task({ durationMinutes: 60.5 })]);
+    harness.calendar.busyResponses = [[busy(draft.blocks[0].start, draft.blocks[0].end)]];
+    const beforeConflict = harness.session.getSnapshot();
+
+    await expect(
+      harness.orchestrator.approveSchedule([draft.blocks[0].id]),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      retryable: false,
+    });
+    expect(harness.session.getSnapshot()).toEqual(beforeConflict);
+    expect(harness.calendar.insertCalls).toEqual([]);
   });
 
   it('queues a draft update behind approval until the selected block is inserted', async () => {
@@ -451,7 +559,7 @@ describe('AssistantOrchestrator', () => {
 
     const first = await harness.orchestrator.approveSchedule(selectedIds);
     const firstEventIds = harness.calendar.insertCalls.map((call) => call.eventId);
-    const second = await harness.orchestrator.approveSchedule(selectedIds);
+    const second = await harness.orchestrator.approveSchedule([selectedIds[1]]);
     const retryEventIds = harness.calendar.insertCalls.slice(3).map((call) => call.eventId);
 
     expect(first).toEqual({
@@ -465,10 +573,284 @@ describe('AssistantOrchestrator', () => {
     expect(second.status).toBe('completed');
     expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual([
       ...selectedIds,
-      ...selectedIds,
+      selectedIds[1],
     ]);
-    expect(retryEventIds).toEqual(firstEventIds);
+    expect(retryEventIds).toEqual([firstEventIds[1]]);
     expect(JSON.stringify(first)).not.toContain('private provider failure');
+  });
+
+  it('reflows only unresolved failures after a retry conflict, preserves edits, and never reinserts prior successes', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness, [
+      task({ id: 'task-1', title: 'First task' }),
+      task({ id: 'task-2', title: 'Second task', priority: 'medium' }),
+      task({ id: 'task-3', title: 'Third task', priority: 'low' }),
+    ]);
+    const selectedIds = draft.blocks.map((block) => block.id);
+    const latestBusy = [
+      busy('2026-08-03T09:00:00+01:00', '2026-08-03T12:00:00+01:00'),
+    ];
+    harness.calendar.busyResponses = [[], latestBusy, latestBusy];
+    let firstAttempt = true;
+    harness.calendar.insertBehavior = ({ block }) => {
+      if (firstAttempt && block.id === selectedIds[1]) {
+        return { blockId: block.id, status: 'failed', errorCode: 'CALENDAR_UNAVAILABLE' };
+      }
+      return { blockId: block.id, status: 'created', googleEventId: `google-${block.id}` };
+    };
+
+    const first = await harness.orchestrator.approveSchedule(selectedIds);
+    firstAttempt = false;
+    const conflict = await harness.orchestrator.approveSchedule([selectedIds[1]]);
+
+    expect(first.status).toBe('completed');
+    expect(conflict.status).toBe('conflict-detected');
+    if (conflict.status !== 'conflict-detected') throw new Error('Expected retry conflict');
+    expect(conflict.schedule.blocks).toEqual([{
+      ...draft.blocks[1],
+      start: '2026-08-03T12:00:00.000+01:00',
+      end: '2026-08-03T13:00:00.000+01:00',
+    }]);
+    expect(conflict.schedule.unscheduledTasks).toEqual([]);
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual(selectedIds);
+
+    const edited = [{
+      ...conflict.schedule.blocks[0],
+      start: '2026-08-03T12:05:00.000+01:00',
+      end: '2026-08-03T13:05:00.000+01:00',
+    }];
+    await expect(harness.orchestrator.updateSchedule(edited)).resolves.toMatchObject({
+      blocks: edited,
+    });
+    const retried = await harness.orchestrator.approveSchedule([selectedIds[1]]);
+
+    expect(retried).toEqual({
+      status: 'completed',
+      results: [{
+        blockId: selectedIds[1],
+        status: 'created',
+        googleEventId: `google-${selectedIds[1]}`,
+      }],
+    });
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual([
+      ...selectedIds,
+      selectedIds[1],
+    ]);
+    expect(harness.calendar.insertCalls.at(-1)?.block).toEqual(edited[0]);
+    expect(harness.session.getSnapshot()).toMatchObject({
+      approvalAttempt: {
+        results: [
+          { blockId: selectedIds[0], status: 'created', googleEventId: `google-${selectedIds[0]}` },
+          { blockId: selectedIds[1], status: 'created', googleEventId: `google-${selectedIds[1]}` },
+          { blockId: selectedIds[2], status: 'created', googleEventId: `google-${selectedIds[2]}` },
+        ],
+      },
+    });
+
+    const busyCallCount = harness.calendar.busyCalls.length;
+    await expect(harness.orchestrator.approveSchedule([selectedIds[1]])).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'Only failed schedule blocks can be retried.',
+    });
+    expect(harness.calendar.busyCalls).toHaveLength(busyCallCount);
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual([
+      ...selectedIds,
+      selectedIds[1],
+    ]);
+  });
+
+  it('reflows a retry to a 12:03 whole-minute boundary and approves it unchanged', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness, [
+      task({ id: 'settled', title: 'Settled task' }),
+      task({ id: 'retry', title: 'Retry task', priority: 'medium' }),
+    ]);
+    const selectedIds = draft.blocks.map((block) => block.id);
+    const latestBusy = [busy(
+      '2026-08-03T09:00:00+01:00',
+      '2026-08-03T12:03:00+01:00',
+    )];
+    harness.calendar.busyResponses = [[], latestBusy, latestBusy];
+    let firstAttempt = true;
+    harness.calendar.insertBehavior = ({ block }) => {
+      if (firstAttempt && block.id === selectedIds[1]) {
+        return { blockId: block.id, status: 'failed', errorCode: 'CALENDAR_UNAVAILABLE' };
+      }
+      return { blockId: block.id, status: 'created', googleEventId: `google-${block.id}` };
+    };
+
+    await harness.orchestrator.approveSchedule(selectedIds);
+    firstAttempt = false;
+    const conflict = await harness.orchestrator.approveSchedule([selectedIds[1]]);
+
+    expect(conflict.status).toBe('conflict-detected');
+    if (conflict.status !== 'conflict-detected') throw new Error('Expected retry conflict');
+    expect(conflict.schedule.blocks).toEqual([{
+      ...draft.blocks[1],
+      start: '2026-08-03T12:03:00.000+01:00',
+      end: '2026-08-03T13:03:00.000+01:00',
+    }]);
+
+    await expect(harness.orchestrator.approveSchedule([selectedIds[1]])).resolves.toEqual({
+      status: 'completed',
+      results: [{
+        blockId: selectedIds[1],
+        status: 'created',
+        googleEventId: `google-${selectedIds[1]}`,
+      }],
+    });
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual([
+      ...selectedIds,
+      selectedIds[1],
+    ]);
+  });
+
+  it('does not store or return an internally invalid retry reflow', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness, [
+      task({ id: 'settled', title: 'Settled task' }),
+      task({ id: 'retry', title: 'Retry task', priority: 'medium' }),
+    ]);
+    const selectedIds = draft.blocks.map((block) => block.id);
+    harness.calendar.busyResponses = [[], [busy(
+      '2026-08-03T09:00:00+01:00',
+      '2026-08-03T12:03:30+01:00',
+    )]];
+    harness.calendar.insertBehavior = ({ block }) => block.id === selectedIds[1]
+      ? { blockId: block.id, status: 'failed', errorCode: 'CALENDAR_UNAVAILABLE' }
+      : { blockId: block.id, status: 'created', googleEventId: `google-${block.id}` };
+
+    await harness.orchestrator.approveSchedule(selectedIds);
+    const beforeConflict = harness.session.getSnapshot();
+
+    await expect(harness.orchestrator.approveSchedule([selectedIds[1]])).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      retryable: false,
+    });
+    expect(harness.session.getSnapshot()).toEqual(beforeConflict);
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual(selectedIds);
+  });
+
+  it('abandons a removed retry failure before approving the remaining unresolved block', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness, [
+      task({ id: 'settled', title: 'Settled task' }),
+      task({ id: 'removed', title: 'Removed retry', priority: 'medium' }),
+      task({ id: 'remaining', title: 'Remaining retry', priority: 'low' }),
+    ]);
+    const selectedIds = draft.blocks.map((block) => block.id);
+    const latestBusy = [busy(
+      '2026-08-03T09:00:00+01:00',
+      '2026-08-03T12:00:00+01:00',
+    )];
+    harness.calendar.busyResponses = [[], latestBusy, latestBusy];
+    let firstAttempt = true;
+    harness.calendar.insertBehavior = ({ block }) => {
+      if (firstAttempt && block.id !== selectedIds[0]) {
+        return { blockId: block.id, status: 'failed', errorCode: 'CALENDAR_UNAVAILABLE' };
+      }
+      return { blockId: block.id, status: 'created', googleEventId: `google-${block.id}` };
+    };
+
+    await harness.orchestrator.approveSchedule(selectedIds);
+    firstAttempt = false;
+    const conflict = await harness.orchestrator.approveSchedule(selectedIds.slice(1));
+    if (conflict.status !== 'conflict-detected') throw new Error('Expected retry conflict');
+    const remaining = conflict.schedule.blocks.find((block) => block.id === selectedIds[2])!;
+
+    await harness.orchestrator.updateSchedule([remaining]);
+    expect(harness.session.getSnapshot().approvalAttempt).toMatchObject({
+      blocks: [draft.blocks[0], remaining],
+      results: [
+        { blockId: selectedIds[0], status: 'created' },
+        { blockId: selectedIds[2], status: 'failed' },
+      ],
+    });
+    const busyCallsBeforeFinalApproval = harness.calendar.busyCalls.length;
+    await harness.orchestrator.approveSchedule([selectedIds[2]]);
+
+    expect(harness.calendar.busyCalls).toHaveLength(busyCallsBeforeFinalApproval + 1);
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual([
+      ...selectedIds,
+      selectedIds[2],
+    ]);
+    expect(harness.session.getSnapshot().approvalAttempt?.results.map((result) => result.blockId))
+      .toEqual([selectedIds[0], selectedIds[2]]);
+  });
+
+  it('aggregates unresolved retry minutes when no London working slot remains', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    const splitDraft = {
+      ...draft,
+      blocks: [
+        { ...draft.blocks[0], id: 'failed-a', end: '2026-08-03T09:30:00+01:00' },
+        {
+          ...draft.blocks[0],
+          id: 'failed-b',
+          start: '2026-08-03T09:30:00+01:00',
+          end: '2026-08-03T10:00:00+01:00',
+        },
+        {
+          ...draft.blocks[0],
+          id: 'created',
+          start: '2026-08-03T10:00:00+01:00',
+          end: '2026-08-03T10:30:00+01:00',
+        },
+      ],
+    };
+    harness.session.replaceSchedule(splitDraft);
+    harness.calendar.busyResponses = [[], [
+      busy('2026-08-03T09:00:00+01:00', '2026-08-03T17:00:00+01:00'),
+    ]];
+    harness.calendar.insertBehavior = ({ block }) => block.id === 'created'
+      ? { blockId: block.id, status: 'created', googleEventId: 'google-created' }
+      : { blockId: block.id, status: 'failed', errorCode: 'CALENDAR_UNAVAILABLE' };
+
+    await harness.orchestrator.approveSchedule(['failed-a', 'failed-b', 'created']);
+    const conflict = await harness.orchestrator.approveSchedule(['failed-a', 'failed-b']);
+
+    expect(conflict).toEqual({
+      status: 'conflict-detected',
+      schedule: {
+        targetDate: TARGET_DATE,
+        busyPeriods: [busy('2026-08-03T09:00:00+01:00', '2026-08-03T17:00:00+01:00')],
+        blocks: [],
+        unscheduledTasks: [{
+          taskId: 'task-1',
+          remainingMinutes: 60,
+          reason: 'no-free-time',
+        }],
+        warnings: ['Some retry events do not fit around current calendar availability.'],
+      },
+    });
+    expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual([
+      'failed-a',
+      'failed-b',
+      'created',
+    ]);
+  });
+
+  it('rejects edits and approvals with non-zero seconds through authoritative validation', async () => {
+    const harness = createHarness();
+    const draft = await createDraft(harness);
+    const offGrid = [{
+      ...draft.blocks[0],
+      start: '2026-08-03T09:00:30+01:00',
+      end: '2026-08-03T10:00:30+01:00',
+    }];
+
+    await expect(harness.orchestrator.updateSchedule(offGrid)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'Block times and duration must use whole-minute increments.',
+    });
+
+    harness.session.replaceSchedule({ ...draft, blocks: offGrid });
+    await expect(harness.orchestrator.approveSchedule([offGrid[0].id])).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'Block times and duration must use whole-minute increments.',
+    });
+    expect(harness.calendar.insertCalls).toEqual([]);
   });
 
   it('validates edited selected blocks before storing and preserves the prior draft on failure', async () => {
@@ -559,7 +941,9 @@ describe('AssistantOrchestrator', () => {
 
   it('resets every ephemeral conversation and planning field', async () => {
     const harness = createHarness();
-    await createDraft(harness);
+    const draft = await createDraft(harness);
+    harness.calendar.busyResponses = [[]];
+    await harness.orchestrator.approveSchedule([draft.blocks[0].id]);
 
     await harness.orchestrator.resetSession();
 

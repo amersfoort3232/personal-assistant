@@ -1,8 +1,15 @@
 import type {
   ChatMessage,
+  EventCreationResult,
   ProposedTask,
+  ScheduleBlock,
   ScheduleSnapshot,
 } from '../../shared/domain';
+
+type ApprovalAttemptState = {
+  blocks: ScheduleBlock[];
+  results: EventCreationResult[];
+};
 
 type SessionState = {
   messages: ChatMessage[];
@@ -12,6 +19,7 @@ type SessionState = {
   unscheduledTasks: ScheduleSnapshot['unscheduledTasks'];
   warnings: string[];
   targetDate: string | undefined;
+  approvalAttempt?: ApprovalAttemptState;
 };
 
 const emptyState = (): SessionState => ({
@@ -39,12 +47,17 @@ export class SessionStore {
     this.state.tasks = structuredClone(tasks);
   }
 
-  replaceSchedule(schedule: ScheduleSnapshot): void {
+  replaceSchedule(schedule: ScheduleSnapshot, preserveApprovalAttempt = false): void {
     this.state.busyPeriods = structuredClone(schedule.busyPeriods);
     this.state.draftSchedule = structuredClone(schedule.blocks);
     this.state.unscheduledTasks = structuredClone(schedule.unscheduledTasks);
     this.state.warnings = [...schedule.warnings];
     this.state.targetDate = schedule.targetDate;
+    if (!preserveApprovalAttempt) delete this.state.approvalAttempt;
+  }
+
+  replaceApprovalAttempt(blocks: ScheduleBlock[], results: EventCreationResult[]): void {
+    this.state.approvalAttempt = structuredClone({ blocks, results });
   }
 
   clearSchedule(): void {
@@ -53,6 +66,7 @@ export class SessionStore {
     this.state.unscheduledTasks = [];
     this.state.warnings = [];
     this.state.targetDate = undefined;
+    delete this.state.approvalAttempt;
   }
 
   reset(): void {

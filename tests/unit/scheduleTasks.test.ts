@@ -341,6 +341,61 @@ describe('scheduleTasks', () => {
     ]);
   });
 
+  it('rounds a second-bearing free boundary up to the next London minute without changing task or break duration', () => {
+    const result = scheduleTasks({
+      targetDate,
+      settings,
+      busyPeriods: [busy(
+        '2026-08-03T09:00:00+01:00',
+        '2026-08-03T12:03:30+01:00',
+      )],
+      tasks: [task({
+        id: 'second-boundary',
+        title: 'Second boundary',
+        durationMinutes: 61,
+      })],
+    });
+
+    expect(result.blocks.map((block) => ({
+      kind: block.kind,
+      start: block.start,
+      end: block.end,
+    }))).toEqual([
+      {
+        kind: 'task',
+        start: '2026-08-03T12:04:00.000+01:00',
+        end: '2026-08-03T13:05:00.000+01:00',
+      },
+      {
+        kind: 'break',
+        start: '2026-08-03T13:05:00.000+01:00',
+        end: '2026-08-03T13:15:00.000+01:00',
+      },
+    ]);
+  });
+
+  it('rechecks interval capacity after rounding a second-bearing start boundary', () => {
+    const result = scheduleTasks({
+      targetDate,
+      settings,
+      busyPeriods: [
+        busy('2026-08-03T09:00:00+01:00', '2026-08-03T12:03:30+01:00'),
+        busy('2026-08-03T13:03:45+01:00', '2026-08-03T13:30:30+01:00'),
+      ],
+      tasks: [task({
+        id: 'fit-after-rounding',
+        title: 'Fit after rounding',
+        durationMinutes: 60,
+      })],
+    });
+
+    expect(result.blocks.map(taskTiming)).toEqual([{
+      taskId: 'fit-after-rounding',
+      start: '2026-08-03T13:31:00.000+01:00',
+      end: '2026-08-03T14:31:00.000+01:00',
+    }]);
+  });
+
   it('keeps scheduled split sessions and reports the remaining work', () => {
     const result = scheduleTasks({
       targetDate,

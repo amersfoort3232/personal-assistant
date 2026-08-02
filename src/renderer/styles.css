@@ -663,7 +663,6 @@ input:disabled {
   left: 50%;
   background: rgba(238, 244, 234, 0.97);
   box-shadow: 0 5px 16px rgba(66, 79, 59, 0.12);
-  touch-action: none;
 }
 
 .timeline-block-break {
@@ -707,9 +706,22 @@ input:disabled {
   padding: 0;
 }
 
-.drag-hint {
+.drag-handle {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 6px 9px;
+  border: 1px solid #c8bcad;
+  border-radius: 8px;
   color: #776c60;
+  background: #fffdfa;
+  cursor: grab;
   font-size: 11px;
+  font-weight: 650;
+  touch-action: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .timeline-field {

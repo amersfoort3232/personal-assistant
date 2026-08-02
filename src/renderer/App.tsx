@@ -214,7 +214,7 @@ export function App() {
 
   const handleApprovalResult = useCallback((result: ApprovalResult, retry: boolean) => {
     if (result.status === 'conflict-detected') {
-      dispatch({ type: 'approvalConflict', schedule: result.schedule });
+      dispatch({ type: 'approvalConflict', retry, schedule: result.schedule });
       return;
     }
     dispatch({
@@ -323,6 +323,7 @@ export function App() {
                 busy={state.busy}
                 busyPeriods={state.schedule.busyPeriods}
                 onChange={updateSchedule}
+                targetDate={state.schedule.targetDate}
               />
               <UnscheduledTasks tasks={tasks} unscheduledTasks={state.schedule.unscheduledTasks} />
               {state.schedule.warnings.map((warning) => (
@@ -330,7 +331,7 @@ export function App() {
               ))}
               <ApprovalBar
                 busy={state.busy}
-                onApprove={(blockIds) => void approveSchedule(blockIds)}
+                onApprove={(blockIds) => void approveSchedule(blockIds, Boolean(state.approval))}
                 selectedIds={selectedIds}
               />
             </div>
@@ -360,7 +361,7 @@ export function App() {
       <main className="app-shell planning-shell">
         <div className="result-workspace">
           <ApprovalResultView
-            blocks={state.schedule.blocks}
+            blocks={state.approvalBlocks ?? state.schedule.blocks}
             busy={state.busy}
             onRetryFailed={(blockIds) => void approveSchedule(blockIds, true)}
             results={state.approval.results}

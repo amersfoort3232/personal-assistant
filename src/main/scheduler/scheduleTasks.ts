@@ -65,6 +65,14 @@ function toIso(ms: number): string {
   return DateTime.fromMillis(ms, { zone: 'Europe/London' }).toISO()!;
 }
 
+function ceilToWholeMinute(ms: number, timeZone: string): number {
+  const instant = DateTime.fromMillis(ms, { zone: timeZone });
+  const minute = instant.startOf('minute');
+  return instant.toMillis() === minute.toMillis()
+    ? instant.toMillis()
+    : minute.plus({ minutes: 1 }).toMillis();
+}
+
 function addTaskBlock(
   blocks: ScheduleBlock[],
   task: ProposedTask,
@@ -144,11 +152,15 @@ export function scheduleTasks(input: {
 
     const contiguousIndex = free.findIndex((slot) => {
       const availableEndMs = Math.min(slot.endMs, deadlineMs);
-      return availableEndMs - slot.startMs >= contiguousMinutes * MINUTE;
+      const alignedStartMs = ceilToWholeMinute(slot.startMs, input.settings.timeZone);
+      return availableEndMs - alignedStartMs >= contiguousMinutes * MINUTE;
     });
 
     if (contiguousIndex >= 0) {
-      const startMs = free[contiguousIndex].startMs;
+      const startMs = ceilToWholeMinute(
+        free[contiguousIndex].startMs,
+        input.settings.timeZone,
+      );
       const added = addTaskBlock(
         blocks,
         task,
@@ -165,8 +177,9 @@ export function scheduleTasks(input: {
         intervalIndex += 1
       ) {
         const slot = free[intervalIndex];
+        const startMs = ceilToWholeMinute(slot.startMs, input.settings.timeZone);
         const availableMinutes = Math.floor(
-          (Math.min(slot.endMs, deadlineMs) - slot.startMs) / MINUTE,
+          (Math.min(slot.endMs, deadlineMs) - startMs) / MINUTE,
         );
         if (availableMinutes < task.minimumSessionMinutes) continue;
 
@@ -176,11 +189,11 @@ export function scheduleTasks(input: {
         const added = addTaskBlock(
           blocks,
           task,
-          slot.startMs,
+          startMs,
           sessionMinutes,
           input.settings,
         );
-        consume(free, intervalIndex, slot.startMs, added.occupiedEndMs);
+        consume(free, intervalIndex, startMs, added.occupiedEndMs);
         remainingMinutes -= sessionMinutes;
         intervalIndex = -1;
       }

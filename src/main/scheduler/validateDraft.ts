@@ -18,6 +18,8 @@ type ParsedBlock = {
 
 const INVALID_TIME_MESSAGE = 'Block has an invalid start or end time.';
 const POSITIVE_DURATION_MESSAGE = 'Block must have a positive duration.';
+const MINIMUM_DURATION_MESSAGE = 'Block must be at least five minutes long.';
+const WHOLE_MINUTE_MESSAGE = 'Block times and duration must use whole-minute increments.';
 const WRONG_DATE_MESSAGE = 'Block is not on the selected date.';
 const OUTSIDE_WORKING_HOURS_MESSAGE = 'Block is outside working hours.';
 const BUSY_OVERLAP_MESSAGE = 'Block overlaps a busy calendar period.';
@@ -64,6 +66,21 @@ export function validateDraft(
     }
     if (!window.start.isValid || !window.end.isValid || startMs < window.start.toMillis() || endMs > window.end.toMillis()) {
       errors.push({ blockId: block.id, message: OUTSIDE_WORKING_HOURS_MESSAGE });
+      continue;
+    }
+    const durationMs = endMs - startMs;
+    if (durationMs < 5 * 60_000) {
+      errors.push({ blockId: block.id, message: MINIMUM_DURATION_MESSAGE });
+      continue;
+    }
+    if (
+      localStart.second !== 0
+      || localEnd.second !== 0
+      || localStart.millisecond !== 0
+      || localEnd.millisecond !== 0
+      || durationMs % 60_000 !== 0
+    ) {
+      errors.push({ blockId: block.id, message: WHOLE_MINUTE_MESSAGE });
       continue;
     }
 

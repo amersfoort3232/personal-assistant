@@ -12,6 +12,7 @@ import { TimelineBlock } from './TimelineBlock';
 
 const WORK_START_HOUR = 9;
 const WORK_END_HOUR = 17;
+const LONDON_ZONE = 'Europe/London';
 export const PIXELS_PER_15_MINUTES = 24;
 
 type ScheduleTimelineProps = {
@@ -19,15 +20,34 @@ type ScheduleTimelineProps = {
   busy: boolean;
   busyPeriods: BusyPeriod[];
   onChange(blocks: ScheduleBlock[]): Promise<boolean>;
+  targetDate: string;
 };
 
 function minutesAfterStart(value: string): number {
-  const time = DateTime.fromISO(value, { setZone: true });
+  const time = DateTime.fromISO(value, { setZone: true }).setZone(LONDON_ZONE);
   return (time.hour - WORK_START_HOUR) * 60 + time.minute;
 }
 
 function formattedTime(value: string): string {
-  return DateTime.fromISO(value, { setZone: true }).toFormat('HH:mm');
+  return DateTime.fromISO(value, { setZone: true }).setZone(LONDON_ZONE).toFormat('HH:mm');
+}
+
+function visibleBusyPeriods(periods: BusyPeriod[], targetDate: string): BusyPeriod[] {
+  const day = DateTime.fromISO(targetDate, { zone: LONDON_ZONE }).startOf('day');
+  const opening = day.set({ hour: WORK_START_HOUR });
+  const closing = day.set({ hour: WORK_END_HOUR });
+  if (!opening.isValid || !closing.isValid) return [];
+
+  return periods.flatMap((period) => {
+    const parsedStart = DateTime.fromISO(period.start, { setZone: true });
+    const parsedEnd = DateTime.fromISO(period.end, { setZone: true });
+    if (!parsedStart.isValid || !parsedEnd.isValid) return [];
+
+    const start = DateTime.max(parsedStart.setZone(LONDON_ZONE), opening);
+    const end = DateTime.min(parsedEnd.setZone(LONDON_ZONE), closing);
+    if (end <= start) return [];
+    return [{ ...period, start: start.toISO()!, end: end.toISO()! }];
+  });
 }
 
 function boundaries(block: ScheduleBlock) {
@@ -91,7 +111,13 @@ function resizeBlock(block: ScheduleBlock, minutes: number): ScheduleBlock | nul
   return { ...block, end: nextEnd.toISO()! };
 }
 
-export function ScheduleTimeline({ blocks, busy, busyPeriods, onChange }: ScheduleTimelineProps) {
+export function ScheduleTimeline({
+  blocks,
+  busy,
+  busyPeriods,
+  onChange,
+  targetDate,
+}: ScheduleTimelineProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor),
@@ -138,7 +164,7 @@ export function ScheduleTimeline({ blocks, busy, busyPeriods, onChange }: Schedu
             );
           })}
 
-          {busyPeriods.map((period) => {
+          {visibleBusyPeriods(busyPeriods, targetDate).map((period) => {
             const top = minutesAfterStart(period.start) / 15 * PIXELS_PER_15_MINUTES;
             const height = Math.max(
               PIXELS_PER_15_MINUTES,
