@@ -6,13 +6,14 @@ import {
   type KeyboardEvent,
 } from 'react';
 import type { ChatMessage } from '../../shared/domain';
+import type { PlanningActionResult } from '../planningActionResult';
 
 export type ChatPanelProps = {
   messages: ChatMessage[];
   disabled: boolean;
   interpreting: boolean;
   resetToken: number;
-  onSend(text: string): Promise<void>;
+  onSend(text: string): Promise<PlanningActionResult<unknown>>;
 };
 
 export function ChatPanel({ disabled, interpreting, messages, onSend, resetToken }: ChatPanelProps) {
@@ -38,8 +39,8 @@ export function ChatPanel({ disabled, interpreting, messages, onSend, resetToken
 
     submitting.current = true;
     try {
-      await onSend(message);
-      if (mounted.current) setText('');
+      const result = await onSend(message);
+      if (mounted.current && result.status === 'completed') setText('');
     } catch {
       // App renders the bridge's structured public error. Keep the draft for retry.
     } finally {

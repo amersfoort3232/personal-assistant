@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProposedTask, TaskPriority } from '../../shared/domain';
+import type { PlanningActionResult } from '../planningActionResult';
 
 const LONDON_ZONE = 'Europe/London';
 const LOCAL_DEADLINE_FORMAT = "yyyy-MM-dd'T'HH:mm";
@@ -10,7 +11,7 @@ type DeadlineOffsetChoice = '' | 'earlier' | 'later';
 type TaskEditorProps = {
   task: ProposedTask;
   busy: boolean;
-  onSave(task: ProposedTask): Promise<ProposedTask>;
+  onSave(task: ProposedTask): Promise<PlanningActionResult<ProposedTask>>;
 };
 
 type TaskFormState = {
@@ -146,7 +147,8 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
       return;
     }
 
-    const unchangedDeadline = form.deadline === deadlineToLocal(task.deadline);
+    const unchangedDeadline = form.deadline === deadlineToLocal(task.deadline)
+      && form.deadlineOffsetChoice === originalDeadlineOffsetChoice(task);
     const selectedDeadline = deadlineIsAmbiguous
       ? deadlineState.candidates[form.deadlineOffsetChoice === 'later' ? 1 : 0]
       : deadlineState.candidates[0];
@@ -167,9 +169,11 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
 
     submitting.current = true;
     try {
-      const acceptedTask = await onSave(submittedTask);
-      setForm(formFromTask(acceptedTask));
-      setDirty(false);
+      const result = await onSave(submittedTask);
+      if (result.status === 'completed') {
+        setForm(formFromTask(result.value));
+        setDirty(false);
+      }
     } catch {
       // App renders the structured public bridge error without exposing internals.
     } finally {
@@ -292,6 +296,7 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
                 return (
                   <label className="radio-label" key={choice}>
                     <input
+                      className="deadline-offset-radio"
                       checked={form.deadlineOffsetChoice === choice}
                       name={`${prefix}-deadline-offset`}
                       onChange={() => updateForm({ deadlineOffsetChoice: choice })}

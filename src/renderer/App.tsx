@@ -6,6 +6,7 @@ import { appReducer, initialRendererState, isSetupComplete } from './appReducer'
 import { ChatPanel } from './components/ChatPanel';
 import { SetupScreen } from './components/SetupScreen';
 import { TaskReview } from './components/TaskReview';
+import type { PlanningActionResult } from './planningActionResult';
 
 type SetupActivity = 'saving-key' | 'connecting-google' | null;
 type PlanningActivity =
@@ -112,8 +113,8 @@ export function App() {
     nextActivity: Exclude<PlanningActivity, null>,
     operation: () => Promise<T>,
     onSuccess: (result: T) => void,
-  ): Promise<T | undefined> => {
-    if (operationInFlight.current) return undefined;
+  ): Promise<PlanningActionResult<T>> => {
+    if (operationInFlight.current) return { status: 'not-started' };
 
     dispatch({ type: 'operationStarted' });
     setPlanningActivity(nextActivity);
@@ -123,7 +124,7 @@ export function App() {
     try {
       const result = await request;
       if (mounted.current) onSuccess(result);
-      return result;
+      return { status: 'completed', value: result };
     } catch (error) {
       if (mounted.current) {
         dispatch({ type: 'operationFailed', message: publicErrorMessage(error) });
@@ -152,21 +153,25 @@ export function App() {
     );
   }, [applySetupUpdate, runSetupOperation]);
 
-  const sendMessage = useCallback(async (text: string) => {
-    await runPlanningOperation(
-      'interpreting',
-      () => window.assistant.sendMessage(text),
-      (conversation) => dispatch({ type: 'conversationUpdated', conversation }),
-    );
-  }, [runPlanningOperation]);
+  const sendMessage = useCallback((text: string) => runPlanningOperation(
+    'interpreting',
+    () => window.assistant.sendMessage(text),
+    (conversation) => dispatch({ type: 'conversationUpdated', conversation }),
+  ), [runPlanningOperation]);
 
-  const updateTask = useCallback(async (task: ProposedTask): Promise<ProposedTask> => {
-    const conversation = await runPlanningOperation<ConversationSnapshot>(
+  const updateTask = useCallback(async (
+    task: ProposedTask,
+  ): Promise<PlanningActionResult<ProposedTask>> => {
+    const result = await runPlanningOperation<ConversationSnapshot>(
       'updating-task',
       () => window.assistant.updateTask(task),
       (updated) => dispatch({ type: 'conversationUpdated', conversation: updated }),
     );
-    return conversation?.tasks.find((item) => item.id === task.id) ?? task;
+    if (result.status === 'not-started') return result;
+    return {
+      status: 'completed',
+      value: result.value.tasks.find((item) => item.id === task.id) ?? task,
+    };
   }, [runPlanningOperation]);
 
   const generateSchedule = useCallback(async () => {

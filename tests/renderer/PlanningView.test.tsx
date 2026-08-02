@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { readFile } from 'node:fs/promises';
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -124,6 +125,7 @@ async function loadConversation(bridge = createBridge()) {
   await user.type(screen.getByLabelText(/daily goals and tasks/i), 'Plan some study time');
   await user.keyboard('{Enter}');
   await screen.findByText('I found one task.');
+  await waitFor(() => expect(screen.getByLabelText(/daily goals and tasks/i)).toHaveValue(''));
   return { user, ...rendered };
 }
 
@@ -377,6 +379,64 @@ describe('planning view', () => {
     });
   });
 
+  it.each([
+    {
+      original: '2026-10-25T01:30:00+01:00',
+      selection: /later.*\+00:00/i,
+      expected: '2026-10-25T01:30:00.000+00:00',
+    },
+    {
+      original: '2026-10-25T01:30:00+00:00',
+      selection: /earlier.*\+01:00/i,
+      expected: '2026-10-25T01:30:00.000+01:00',
+    },
+  ])('emits the selected offset when changing occurrence from $original', async ({
+    original,
+    selection,
+    expected,
+  }) => {
+    const taskWithAmbiguousDeadline = { ...estimatedTask, deadline: original };
+    const bridge = createBridge({
+      sendMessage: vi.fn().mockResolvedValue({
+        messages: conversation.messages,
+        tasks: [taskWithAmbiguousDeadline],
+      }),
+    });
+    const { user } = await loadConversation(bridge);
+    const choice = screen.getByRole('group', { name: /choose which 01:30 occurrence/i });
+
+    await user.click(within(choice).getByRole('radio', { name: selection }));
+    await user.click(screen.getByRole('button', { name: /save study typescript/i }));
+
+    expect(bridge.updateTask).toHaveBeenCalledWith({
+      ...taskWithAmbiguousDeadline,
+      deadline: expected,
+    });
+  });
+
+  it('renders ambiguous deadline choices as compact radios with a visible legend', async () => {
+    const styles = await readFile('src/renderer/styles.css', 'utf8');
+    const style = document.createElement('style');
+    style.textContent = styles;
+    document.head.append(style);
+    await loadConversation();
+    fireEvent.change(screen.getByLabelText(/^deadline$/i), {
+      target: { value: '2026-10-25T01:30' },
+    });
+
+    const choice = screen.getByRole('group', { name: /choose which 01:30 occurrence/i });
+    const radio = within(choice).getByRole('radio', { name: /earlier/i });
+    const legend = choice.querySelector('legend');
+
+    expect(radio).toHaveClass('deadline-offset-radio');
+    expect(getComputedStyle(radio).width).toBe('18px');
+    expect(getComputedStyle(radio).minHeight).toBe('18px');
+    expect(legend).not.toBeNull();
+    expect(getComputedStyle(legend as HTMLLegendElement).position).toBe('static');
+    expect(getComputedStyle(legend as HTMLLegendElement).width).not.toBe('1px');
+    style.remove();
+  });
+
   it('keeps dirty sibling edits while saved and clean editors accept the server snapshot', async () => {
     const initial = {
       messages: conversation.messages,
@@ -411,6 +471,84 @@ describe('planning view', () => {
     expect(siblingTitle).toHaveValue('My unsaved sibling edit');
     expect(within(screen.getByRole('group', { name: /server refreshed clean task/i }))
       .getByRole('textbox', { name: /^title$/i })).toHaveValue('Server refreshed clean task');
+  });
+
+  it('retains the composer draft when a same-tick task save starts first', async () => {
+    const pendingUpdate = deferred<ConversationSnapshot>();
+    const updateTask = vi.fn().mockReturnValue(pendingUpdate.promise);
+    const bridge = createBridge({ updateTask });
+    const { user } = await loadConversation(bridge);
+    const sendMessage = vi.mocked(bridge.sendMessage);
+    sendMessage.mockClear();
+    const composer = screen.getByLabelText(/daily goals and tasks/i);
+    await user.type(composer, 'Keep this competing draft');
+    const taskForm = screen.getByRole('group', { name: /study typescript/i }).closest('form');
+    const composerForm = composer.closest('form');
+
+    expect(taskForm).not.toBeNull();
+    expect(composerForm).not.toBeNull();
+    act(() => {
+      taskForm?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      composerForm?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(composer).toHaveValue('Keep this competing draft');
+    expect(updateTask).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    pendingUpdate.resolve(conversation);
+  });
+
+  it('retains a dirty task form when a same-tick send starts first', async () => {
+    const initial = {
+      messages: conversation.messages,
+      tasks: [estimatedTask],
+    };
+    const competingSnapshot = {
+      messages: conversation.messages,
+      tasks: [{ ...estimatedTask, title: 'Server replacement title' }],
+    };
+    const bridge = createBridge({
+      sendMessage: vi.fn().mockResolvedValue(initial),
+    });
+    const { user } = await loadConversation(bridge);
+    const sendMessage = vi.mocked(bridge.sendMessage);
+    const pendingSend = deferred<ConversationSnapshot>();
+    sendMessage.mockClear();
+    sendMessage.mockReturnValueOnce(pendingSend.promise);
+    const updateTask = vi.mocked(bridge.updateTask);
+    const title = screen.getByRole('textbox', { name: /^title$/i });
+    await user.clear(title);
+    await user.type(title, 'Keep my dirty task title');
+    const composer = screen.getByLabelText(/daily goals and tasks/i);
+    await user.type(composer, 'Start the competing send');
+    const composerForm = composer.closest('form');
+    const taskForm = screen.getByRole('group', { name: /study typescript/i }).closest('form');
+
+    expect(composerForm).not.toBeNull();
+    expect(taskForm).not.toBeNull();
+    act(() => {
+      composerForm?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      taskForm?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      pendingSend.resolve(competingSnapshot);
+      await pendingSend.promise;
+    });
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(updateTask).not.toHaveBeenCalled();
+    expect(title).toHaveValue('Keep my dirty task title');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('disables Build schedule when there are no tasks', async () => {

@@ -489,6 +489,43 @@ input:disabled {
   border: 0;
 }
 
+.task-editor .deadline-offset-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding: 10px 12px;
+  border-color: #d8cec2;
+  background: #fbf8f3;
+}
+
+.task-editor .deadline-offset-choice > legend {
+  position: static;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  color: #625546;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.deadline-offset-choice .radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+}
+
+.deadline-offset-choice .deadline-offset-radio {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  flex: none;
+}
+
 .task-heading {
   margin-bottom: 16px;
 }
