@@ -95,6 +95,20 @@ describe('TaskInterpreter', () => {
 });
 
 describe('DeepSeekClient', () => {
+  it('disables thinking mode when forcing the task extraction tool', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(deepSeekResponse());
+
+    await new DeepSeekClient('test-key', fetchImpl).createTaskToolCall(messages);
+
+    const request = fetchImpl.mock.calls[0]?.[1];
+    const body = JSON.parse(String(request?.body));
+    expect(body).toMatchObject({
+      model: 'deepseek-v4-flash',
+      thinking: { type: 'disabled' },
+      tool_choice: { type: 'function', function: { name: 'replace_tasks' } },
+    });
+  });
+
   it.each([
     ['missing', { choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [] } }] }],
     ['wrong', { choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ function: { name: 'other', arguments: validArguments } }] } }] }],
@@ -141,6 +155,34 @@ describe('DeepSeekClient', () => {
       code: 'DEEPSEEK_UNAVAILABLE',
       retryable: true,
     });
+  });
+
+  it('reports a bounded structured API error without exposing the full response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: vi.fn().mockResolvedValue({
+        error: {
+          message: `Invalid parameter: tool schema.${'x'.repeat(600)}`,
+          type: 'invalid_request_error',
+        },
+        private_debug_data: 'must-not-be-exposed',
+      }),
+    });
+
+    const error = await new DeepSeekClient('test-key', fetchImpl)
+      .createTaskToolCall(messages)
+      .catch((reason: unknown) => reason);
+
+    expect(error).toMatchObject({
+      code: 'DEEPSEEK_UNAVAILABLE',
+      retryable: false,
+    });
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error('Expected DeepSeekClient to reject with an Error.');
+    expect(error.message).toContain('Invalid parameter: tool schema.');
+    expect(error.message).not.toContain('must-not-be-exposed');
+    expect(error.message.length).toBeLessThanOrEqual(540);
   });
 });
 

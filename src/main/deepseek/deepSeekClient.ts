@@ -28,6 +28,7 @@ export class DeepSeekClient {
         },
         body: JSON.stringify({
           model: 'deepseek-v4-flash',
+          thinking: { type: 'disabled' },
           temperature: 0,
           max_tokens: 3000,
           messages: [
@@ -48,9 +49,10 @@ export class DeepSeekClient {
     }
 
     if (!response.ok) {
+      const detail = await this.errorDetail(response);
       throw new AppError(
         'DEEPSEEK_UNAVAILABLE',
-        `DeepSeek request failed with status ${response.status}.`,
+        `DeepSeek request failed with status ${response.status}.${detail ? ` ${detail}` : ''}`,
         response.status === 429 || response.status >= 500,
       );
     }
@@ -67,6 +69,20 @@ export class DeepSeekClient {
       throw this.invalidResponse();
     }
     return argumentsText;
+  }
+
+  private async errorDetail(response: Response): Promise<string | undefined> {
+    try {
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || !isRecord(payload.error)) return undefined;
+      const message = payload.error.message;
+      if (typeof message !== 'string') return undefined;
+
+      const clean = message.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+      return clean ? clean.slice(0, 480) : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private replaceTasksArguments(payload: unknown): string | undefined {
