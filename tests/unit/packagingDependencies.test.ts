@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 type PackageMetadata = {
   name?: unknown;
   version?: unknown;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
 };
 
 describe('Node 24 packaging dependencies', () => {
@@ -20,5 +22,13 @@ describe('Node 24 packaging dependencies', () => {
       name: '@electron-internal/extract-zip',
       version: '1.0.5',
     });
+  });
+
+  it('ships the error logger as an exact production dependency', async () => {
+    const packageFile = path.resolve(import.meta.dirname, '../../package.json');
+    const packageJson = JSON.parse(await readFile(packageFile, 'utf8')) as PackageMetadata;
+
+    expect(packageJson.dependencies?.['electron-log']).toBe('5.4.4');
+    expect(packageJson.devDependencies?.['electron-log']).toBeUndefined();
   });
 });
