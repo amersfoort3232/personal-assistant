@@ -11,6 +11,11 @@ import {
 import { selectUserDataPath } from './main/app/runtimeUserDataPath';
 import { ErrorLogger } from './main/diagnostics/errorLogger';
 import { createElectronLogTransport } from './main/diagnostics/electronLogTransport';
+import { registerRendererErrorHandler } from './main/diagnostics/registerRendererErrorHandler';
+import {
+  registerRuntimeErrorLogging,
+  type RuntimeEventSource,
+} from './main/diagnostics/registerRuntimeErrorLogging';
 import { DeepSeekTaskService } from './main/deepseek/deepSeekTaskService';
 import { GoogleAuthService } from './main/google/googleAuthService';
 import { GoogleCalendarService } from './main/google/googleCalendarService';
@@ -29,6 +34,14 @@ declare const __PA_E2E_BUILD__: boolean;
 declare const __PA_PRODUCTION_BUILD__: boolean;
 
 const executableDirectory = path.dirname(process.execPath);
+let applicationErrorLogger: ErrorLogger | undefined;
+
+function getApplicationErrorLogger(): ErrorLogger | undefined {
+  if (!app.isReady()) return undefined;
+  applicationErrorLogger ??= new ErrorLogger(createElectronLogTransport(app.getPath('documents')));
+  return applicationErrorLogger;
+}
+
 const squirrelHandled = handleSquirrelLifecycleEvent(process.argv, {
   executableName: path.basename(process.execPath),
   runUpdate: (args) => {
@@ -71,7 +84,8 @@ async function loadWindow(window: BrowserWindow, packagedRendererPath: string): 
 
 async function startApplication(): Promise<void> {
   if (__PA_PRODUCTION_BUILD__) Menu.setApplicationMenu(null);
-  const errorLogger = new ErrorLogger(createElectronLogTransport(app.getPath('documents')));
+  const errorLogger = getApplicationErrorLogger();
+  if (!errorLogger) throw new Error('Error logging is unavailable before Electron is ready.');
 
   if (!__PA_E2E_BUILD__ && !GOOGLE_OAUTH_CLIENT_ID.trim()) {
     dialog.showErrorBox(
@@ -134,17 +148,26 @@ async function startApplication(): Promise<void> {
   );
   const window = createWindow();
 
-  registerIpcHandlers(ipcMain, orchestrator, {
+  const senderPolicy = {
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
     packagedRendererUrl: pathToFileURL(packagedRendererPath).href,
     expectedWebContents: window.webContents,
-  }, errorLogger);
+  };
+  registerIpcHandlers(ipcMain, orchestrator, senderPolicy, errorLogger);
+  registerRendererErrorHandler(ipcMain, senderPolicy, errorLogger);
+  registerRuntimeErrorLogging(
+    process as unknown as RuntimeEventSource,
+    app as unknown as RuntimeEventSource,
+    window.webContents as unknown as RuntimeEventSource,
+    errorLogger,
+  );
   app.once('before-quit', () => session.reset());
   await loadWindow(window, packagedRendererPath);
 }
 
 if (!squirrelHandled) {
-  void app.whenReady().then(startApplication).catch(() => {
+  void app.whenReady().then(startApplication).catch((error) => {
+    getApplicationErrorLogger()?.logError('main', 'application-startup', error);
     dialog.showErrorBox(
       'Personal Assistant could not start',
       'The application could not start safely. Please restart and try again.',
