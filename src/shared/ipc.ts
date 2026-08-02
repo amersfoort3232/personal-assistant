@@ -15,6 +15,10 @@ export const IPC = {
   RESET_SESSION: 'assistant:reset-session',
 } as const;
 
+export const DIAGNOSTIC_IPC = {
+  REPORT_RENDERER_ERROR: 'assistant:report-renderer-error',
+} as const;
+
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];
 
 export type SerializableAppError = {
