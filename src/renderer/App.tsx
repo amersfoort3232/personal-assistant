@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { DateTime } from 'luxon';
-import type { ProposedTask } from '../shared/domain';
+import type { ConversationSnapshot, ProposedTask } from '../shared/domain';
 import type { SerializableAppError } from '../shared/ipc';
 import { appReducer, initialRendererState, isSetupComplete } from './appReducer';
 import { ChatPanel } from './components/ChatPanel';
@@ -39,6 +39,7 @@ export function App() {
   const [activity, setActivity] = useState<SetupActivity>(null);
   const [planningActivity, setPlanningActivity] = useState<PlanningActivity>(null);
   const [selectedDate, setSelectedDate] = useState(currentLondonDate);
+  const [composerResetToken, setComposerResetToken] = useState(0);
   const mounted = useRef(false);
   const setupRequest = useRef<ReturnType<typeof window.assistant.getSetupStatus> | undefined>(undefined);
   const operationInFlight = useRef<Promise<unknown> | null>(null);
@@ -111,8 +112,8 @@ export function App() {
     nextActivity: Exclude<PlanningActivity, null>,
     operation: () => Promise<T>,
     onSuccess: (result: T) => void,
-  ): Promise<void> => {
-    if (operationInFlight.current) return;
+  ): Promise<T | undefined> => {
+    if (operationInFlight.current) return undefined;
 
     dispatch({ type: 'operationStarted' });
     setPlanningActivity(nextActivity);
@@ -122,6 +123,7 @@ export function App() {
     try {
       const result = await request;
       if (mounted.current) onSuccess(result);
+      return result;
     } catch (error) {
       if (mounted.current) {
         dispatch({ type: 'operationFailed', message: publicErrorMessage(error) });
@@ -150,17 +152,22 @@ export function App() {
     );
   }, [applySetupUpdate, runSetupOperation]);
 
-  const sendMessage = useCallback((text: string) => runPlanningOperation(
-    'interpreting',
-    () => window.assistant.sendMessage(text),
-    (conversation) => dispatch({ type: 'conversationUpdated', conversation }),
-  ), [runPlanningOperation]);
+  const sendMessage = useCallback(async (text: string) => {
+    await runPlanningOperation(
+      'interpreting',
+      () => window.assistant.sendMessage(text),
+      (conversation) => dispatch({ type: 'conversationUpdated', conversation }),
+    );
+  }, [runPlanningOperation]);
 
-  const updateTask = useCallback((task: ProposedTask) => runPlanningOperation(
-    'updating-task',
-    () => window.assistant.updateTask(task),
-    (conversation) => dispatch({ type: 'conversationUpdated', conversation }),
-  ), [runPlanningOperation]);
+  const updateTask = useCallback(async (task: ProposedTask): Promise<ProposedTask> => {
+    const conversation = await runPlanningOperation<ConversationSnapshot>(
+      'updating-task',
+      () => window.assistant.updateTask(task),
+      (updated) => dispatch({ type: 'conversationUpdated', conversation: updated }),
+    );
+    return conversation?.tasks.find((item) => item.id === task.id) ?? task;
+  }, [runPlanningOperation]);
 
   const generateSchedule = useCallback(async () => {
     try {
@@ -181,6 +188,7 @@ export function App() {
         () => window.assistant.resetSession(),
         () => {
           setSelectedDate(currentLondonDate());
+          setComposerResetToken((current) => current + 1);
           dispatch({ type: 'sessionReset' });
         },
       );
@@ -268,9 +276,11 @@ export function App() {
 
         <div className="planning-columns">
           <ChatPanel
-            busy={state.busy}
+            disabled={state.busy}
+            interpreting={planningActivity === 'interpreting'}
             messages={messages}
             onSend={sendMessage}
+            resetToken={composerResetToken}
           />
           <div className="review-column">
             <TaskReview busy={state.busy} onUpdateTask={updateTask} tasks={tasks} />

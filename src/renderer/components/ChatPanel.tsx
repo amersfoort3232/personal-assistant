@@ -9,11 +9,13 @@ import type { ChatMessage } from '../../shared/domain';
 
 export type ChatPanelProps = {
   messages: ChatMessage[];
-  busy: boolean;
+  disabled: boolean;
+  interpreting: boolean;
+  resetToken: number;
   onSend(text: string): Promise<void>;
 };
 
-export function ChatPanel({ messages, busy, onSend }: ChatPanelProps) {
+export function ChatPanel({ disabled, interpreting, messages, onSend, resetToken }: ChatPanelProps) {
   const [text, setText] = useState('');
   const mounted = useRef(false);
   const submitting = useRef(false);
@@ -25,10 +27,14 @@ export function ChatPanel({ messages, busy, onSend }: ChatPanelProps) {
     };
   }, []);
 
+  useEffect(() => {
+    setText('');
+  }, [resetToken]);
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const message = text.trim();
-    if (!message || busy || submitting.current) return;
+    if (!message || disabled || submitting.current) return;
 
     submitting.current = true;
     try {
@@ -93,7 +99,7 @@ export function ChatPanel({ messages, busy, onSend }: ChatPanelProps) {
           <p className="field-note" id="composer-help">Enter to send · Shift+Enter for a new line</p>
           <button
             className="button button-primary"
-            disabled={busy || text.trim().length === 0}
+            disabled={disabled || text.trim().length === 0}
             type="submit"
           >
             Send
@@ -102,7 +108,7 @@ export function ChatPanel({ messages, busy, onSend }: ChatPanelProps) {
       </form>
 
       <div aria-live="polite" aria-atomic="true" className="status-message" role="status">
-        {busy ? 'DeepSeek is working…' : ''}
+        {interpreting ? 'DeepSeek is working…' : ''}
       </div>
     </section>
   );

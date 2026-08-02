@@ -187,14 +187,15 @@ export class AssistantOrchestrator {
       const clean = text.trim();
       if (!clean) throw validationError('Message cannot be empty.');
 
-      this.session.appendMessage({
+      const userMessage: ChatMessage = {
         id: randomUUID(),
         role: 'user',
         text: clean,
         createdAt: new Date().toISOString(),
-      });
+      };
       const state = this.session.getSnapshot();
-      const tasks = await this.taskService.interpret(state.messages);
+      const tasks = await this.taskService.interpret([...state.messages, userMessage]);
+      this.session.appendMessage(userMessage);
       this.session.replaceTasks(tasks);
       this.session.clearSchedule();
       this.session.appendMessage({

@@ -140,17 +140,19 @@ class FakeCalendarService {
 class FakeTaskService {
   conversations: ChatMessage[][] = [];
 
-  constructor(public responses: ProposedTask[][] = [[task()]]) {}
+  constructor(public responses: Array<ProposedTask[] | Error> = [[task()]]) {}
 
   async interpret(messages: ChatMessage[]): Promise<ProposedTask[]> {
     this.conversations.push(structuredClone(messages));
-    return structuredClone(this.responses.shift() ?? []);
+    const response = this.responses.shift() ?? [];
+    if (response instanceof Error) throw response;
+    return structuredClone(response);
   }
 }
 
 function createHarness(options: {
   settings?: AppSettings;
-  taskResponses?: ProposedTask[][];
+  taskResponses?: Array<ProposedTask[] | Error>;
 } = {}) {
   const session = new SessionStore();
   const vault = new FakeVault();
@@ -202,6 +204,31 @@ describe('AssistantOrchestrator', () => {
       role: 'assistant',
       text: 'I found 1 task. Review the details before scheduling.',
     });
+  });
+
+  it('does not commit a failed user message or duplicate it when the send is retried', async () => {
+    const unavailable = new AppError(
+      'DEEPSEEK_UNAVAILABLE',
+      'DeepSeek is temporarily unavailable.',
+      true,
+    );
+    const harness = createHarness({ taskResponses: [unavailable, [task()]] });
+
+    await expect(harness.orchestrator.sendMessage('Plan my day')).rejects.toBe(unavailable);
+    expect(harness.session.getSnapshot()).toMatchObject({ messages: [], tasks: [] });
+
+    const retried = await harness.orchestrator.sendMessage('Plan my day');
+
+    expect(harness.taskService.conversations.map((messages) => (
+      messages.map(({ role, text }) => ({ role, text }))
+    ))).toEqual([
+      [{ role: 'user', text: 'Plan my day' }],
+      [{ role: 'user', text: 'Plan my day' }],
+    ]);
+    expect(retried.messages.map(({ role, text }) => ({ role, text }))).toEqual([
+      { role: 'user', text: 'Plan my day' },
+      { role: 'assistant', text: 'I found 1 task. Review the details before scheduling.' },
+    ]);
   });
 
   it('fetches fresh busy periods and stores each generated draft', async () => {

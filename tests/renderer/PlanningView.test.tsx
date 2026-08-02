@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { StrictMode } from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
@@ -47,6 +47,25 @@ const conversation: ConversationSnapshot = {
     },
   ],
   tasks: [estimatedTask],
+};
+
+const siblingTask: ProposedTask = {
+  ...estimatedTask,
+  id: 'task-email',
+  title: 'Write status email',
+  notes: 'Summarise the week',
+  durationMinutes: 30,
+  durationWasEstimated: false,
+  priority: 'medium',
+  deadline: undefined,
+  canSplit: false,
+  minimumSessionMinutes: 15,
+};
+
+const cleanTask: ProposedTask = {
+  ...siblingTask,
+  id: 'task-clean',
+  title: 'Clean editor task',
 };
 
 const schedule: ScheduleSnapshot = {
@@ -166,6 +185,7 @@ describe('planning view', () => {
 
     expect(screen.getByRole('button', { name: /send/i })).toBeDisabled();
     expect(composer).toHaveValue('Do not discard this follow-up');
+    expect(screen.queryByText(/deepseek is working/i)).not.toBeInTheDocument();
 
     pending.resolve(conversation);
     await waitFor(() => expect(screen.getByRole('button', { name: /send/i })).toBeEnabled());
@@ -215,8 +235,62 @@ describe('planning view', () => {
 
     expect(minimum).toHaveAttribute('max', '20');
     expect(screen.getByText(/minimum session cannot exceed duration/i)).toBeInTheDocument();
+    expect(minimum).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByRole('button', { name: /save study typescript/i })).toBeDisabled();
     expect(bridge.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('caps the minimum-session input at 120 minutes for longer tasks', async () => {
+    const longTask = {
+      ...estimatedTask,
+      durationMinutes: 300,
+      minimumSessionMinutes: 100,
+    };
+    await loadConversation(createBridge({
+      sendMessage: vi.fn().mockResolvedValue({
+        messages: conversation.messages,
+        tasks: [longTask],
+      }),
+    }));
+
+    expect(screen.getByRole('spinbutton', { name: /minimum session.*minutes/i }))
+      .toHaveAttribute('max', '120');
+  });
+
+  it('shows accessible feedback for every invalid duration state', async () => {
+    const { user } = await loadConversation();
+    const duration = screen.getByRole('spinbutton', { name: /duration.*minutes/i });
+
+    for (const [value, message] of [
+      ['', /duration is required/i],
+      ['4', /duration must be between 5 and 480 minutes/i],
+      ['481', /duration must be between 5 and 480 minutes/i],
+      ['15.5', /duration must be a whole number/i],
+    ] as const) {
+      fireEvent.change(duration, { target: { value } });
+      expect(duration).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText(message)).toBeInTheDocument();
+    }
+
+    await user.clear(duration);
+    await user.type(duration, '45');
+    expect(duration).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('shows accessible feedback for every invalid minimum-session state', async () => {
+    await loadConversation();
+    const minimum = screen.getByRole('spinbutton', { name: /minimum session.*minutes/i });
+
+    for (const [value, message] of [
+      ['', /minimum session is required/i],
+      ['14', /minimum session must be between 15 and 120 minutes/i],
+      ['121', /minimum session must be between 15 and 120 minutes/i],
+      ['15.5', /minimum session must be a whole number/i],
+    ] as const) {
+      fireEvent.change(minimum, { target: { value } });
+      expect(minimum).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText(message)).toBeInTheDocument();
+    }
   });
 
   it('uses controlled task fields and converts London local deadlines to explicit offsets', async () => {
@@ -243,6 +317,100 @@ describe('planning view', () => {
       canSplit: false,
       minimumSessionMinutes: 20,
     });
+  });
+
+  it('rejects a nonexistent Europe/London wall time instead of normalizing it', async () => {
+    const { bridge } = await loadConversation();
+    const deadline = screen.getByLabelText(/^deadline$/i);
+
+    fireEvent.change(deadline, { target: { value: '2026-03-29T01:30' } });
+
+    expect(deadline).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/this local time does not exist in europe\/london/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save study typescript/i })).toBeDisabled();
+    expect(bridge.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit earlier or later offset for an ambiguous London wall time', async () => {
+    const { user, bridge } = await loadConversation();
+    const deadline = screen.getByLabelText(/^deadline$/i);
+
+    fireEvent.change(deadline, { target: { value: '2026-10-25T01:30' } });
+
+    const choice = screen.getByRole('group', { name: /choose which 01:30 occurrence/i });
+    const earlier = within(choice).getByRole('radio', { name: /earlier.*\+01:00/i });
+    const later = within(choice).getByRole('radio', { name: /later.*\+00:00/i });
+    expect(earlier).not.toBeChecked();
+    expect(later).not.toBeChecked();
+    expect(deadline).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: /save study typescript/i })).toBeDisabled();
+
+    await user.click(later);
+    expect(deadline).toHaveAttribute('aria-invalid', 'false');
+    await user.click(screen.getByRole('button', { name: /save study typescript/i }));
+
+    expect(bridge.updateTask).toHaveBeenCalledWith({
+      ...estimatedTask,
+      deadline: '2026-10-25T01:30:00.000+00:00',
+    });
+  });
+
+  it('preserves the exact original deadline string when the deadline is unchanged', async () => {
+    const exactDeadline = '2026-10-25T01:30:45.123+00:00';
+    const taskWithExactDeadline = { ...estimatedTask, deadline: exactDeadline };
+    const bridge = createBridge({
+      sendMessage: vi.fn().mockResolvedValue({
+        messages: conversation.messages,
+        tasks: [taskWithExactDeadline],
+      }),
+    });
+    const { user } = await loadConversation(bridge);
+
+    const notes = screen.getByRole('textbox', { name: /^notes$/i });
+    await user.clear(notes);
+    await user.type(notes, 'Keep the original instant');
+    await user.click(screen.getByRole('button', { name: /save study typescript/i }));
+
+    expect(bridge.updateTask).toHaveBeenCalledWith({
+      ...taskWithExactDeadline,
+      notes: 'Keep the original instant',
+    });
+  });
+
+  it('keeps dirty sibling edits while saved and clean editors accept the server snapshot', async () => {
+    const initial = {
+      messages: conversation.messages,
+      tasks: [estimatedTask, siblingTask, cleanTask],
+    };
+    const acceptedStudy = { ...estimatedTask, title: 'Server accepted study task', durationMinutes: 45 };
+    const acceptedSibling = { ...siblingTask, title: 'Server sibling value' };
+    const acceptedClean = { ...cleanTask, title: 'Server refreshed clean task' };
+    const updateTask = vi.fn().mockResolvedValue({
+      messages: conversation.messages,
+      tasks: [acceptedStudy, acceptedSibling, acceptedClean],
+    });
+    const { user } = await loadConversation(createBridge({
+      sendMessage: vi.fn().mockResolvedValue(initial),
+      updateTask,
+    }));
+
+    const siblingEditor = screen.getByRole('group', { name: /write status email/i });
+    const siblingTitle = within(siblingEditor).getByRole('textbox', { name: /^title$/i });
+    await user.clear(siblingTitle);
+    await user.type(siblingTitle, 'My unsaved sibling edit');
+
+    const studyEditor = screen.getByRole('group', { name: /study typescript/i });
+    const studyDuration = within(studyEditor).getByRole('spinbutton', { name: /duration/i });
+    await user.clear(studyDuration);
+    await user.type(studyDuration, '45');
+    await user.click(within(studyEditor).getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(within(
+      screen.getByRole('group', { name: /server accepted study task/i }),
+    ).getByRole('textbox', { name: /^title$/i })).toHaveValue('Server accepted study task'));
+    expect(siblingTitle).toHaveValue('My unsaved sibling edit');
+    expect(within(screen.getByRole('group', { name: /server refreshed clean task/i }))
+      .getByRole('textbox', { name: /^title$/i })).toHaveValue('Server refreshed clean task');
   });
 
   it('disables Build schedule when there are no tasks', async () => {
@@ -328,5 +496,33 @@ describe('planning view', () => {
       expect(screen.queryByText('I found one task.')).not.toBeInTheDocument();
       expect(screen.queryByRole('group', { name: /study typescript/i })).not.toBeInTheDocument();
     });
+  });
+
+  it('clears an unsent composer draft only after a successful new-day reset', async () => {
+    const user = userEvent.setup();
+    await renderPlanning();
+    const composer = screen.getByLabelText(/daily goals and tasks/i);
+    await user.type(composer, 'Unsent draft');
+
+    await user.click(screen.getByRole('button', { name: /start new day/i }));
+
+    await waitFor(() => expect(composer).toHaveValue(''));
+  });
+
+  it('retains an unsent composer draft when the new-day reset fails', async () => {
+    const resetSession = vi.fn().mockRejectedValue({
+      code: 'INTERNAL_ERROR',
+      message: 'Could not start a new day.',
+      retryable: true,
+    });
+    const user = userEvent.setup();
+    await renderPlanning(createBridge({ resetSession }));
+    const composer = screen.getByLabelText(/daily goals and tasks/i);
+    await user.type(composer, 'Keep this unsent draft');
+
+    await user.click(screen.getByRole('button', { name: /start new day/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not start a new day.');
+    expect(composer).toHaveValue('Keep this unsent draft');
   });
 });

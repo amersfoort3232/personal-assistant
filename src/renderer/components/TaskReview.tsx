@@ -4,7 +4,7 @@ import { TaskEditor } from './TaskEditor';
 type TaskReviewProps = {
   tasks: ProposedTask[];
   busy: boolean;
-  onUpdateTask(task: ProposedTask): Promise<void>;
+  onUpdateTask(task: ProposedTask): Promise<ProposedTask>;
 };
 
 export function TaskReview({ tasks, busy, onUpdateTask }: TaskReviewProps) {
