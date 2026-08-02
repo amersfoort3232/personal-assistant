@@ -17,7 +17,9 @@ clear **View calendar** button.
 
 Selecting the button opens a **Calendar** tab. The tab shows today's events in
 a read-only, chronological day timeline. It includes a **Back to Home** button
-and a **Refresh** button. The application opens on Home.
+and a **Refresh** button. A separate **Plan another event** action also returns
+to Home, where the user can add a task, build a schedule, and approve it. The
+application opens on Home.
 
 Both views load today's events when they are first shown. Refresh reloads the
 same local calendar day; no date picker or calendar editing is included in this
