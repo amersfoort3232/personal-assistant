@@ -414,7 +414,7 @@ describe('planning view', () => {
     });
   });
 
-  it('renders ambiguous deadline choices as compact radios with a visible legend', async () => {
+  it('renders ambiguous deadline choices as compact radios with accessible label targets and a visible legend', async () => {
     const styles = await readFile('src/renderer/styles.css', 'utf8');
     const style = document.createElement('style');
     style.textContent = styles;
@@ -426,11 +426,14 @@ describe('planning view', () => {
 
     const choice = screen.getByRole('group', { name: /choose which 01:30 occurrence/i });
     const radio = within(choice).getByRole('radio', { name: /earlier/i });
+    const label = radio.closest('label');
     const legend = choice.querySelector('legend');
 
     expect(radio).toHaveClass('deadline-offset-radio');
     expect(getComputedStyle(radio).width).toBe('18px');
     expect(getComputedStyle(radio).minHeight).toBe('18px');
+    expect(label).not.toBeNull();
+    expect(getComputedStyle(label as HTMLLabelElement).minHeight).toBe('40px');
     expect(legend).not.toBeNull();
     expect(getComputedStyle(legend as HTMLLegendElement).position).toBe('static');
     expect(getComputedStyle(legend as HTMLLegendElement).width).not.toBe('1px');

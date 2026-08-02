@@ -515,7 +515,7 @@ input:disabled {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 28px;
+  min-height: 40px;
 }
 
 .deadline-offset-choice .deadline-offset-radio {
