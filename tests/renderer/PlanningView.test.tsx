@@ -321,6 +321,18 @@ describe('planning view', () => {
     });
   });
 
+  it('saves an optional fixed task start time without turning it into a deadline', async () => {
+    const { user, bridge } = await loadConversation();
+
+    await user.type(screen.getByLabelText(/^fixed start$/i), '11:00');
+    await user.click(screen.getByRole('button', { name: /save study typescript/i }));
+
+    expect(bridge.updateTask).toHaveBeenCalledWith({
+      ...estimatedTask,
+      fixedStartTime: '11:00',
+    });
+  });
+
   it('rejects a nonexistent Europe/London wall time instead of normalizing it', async () => {
     const { bridge } = await loadConversation();
     const deadline = screen.getByLabelText(/^deadline$/i);

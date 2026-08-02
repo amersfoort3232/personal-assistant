@@ -50,6 +50,23 @@ describe('domain schemas', () => {
     expect(result.success).toBe(false);
   });
 
+  it('accepts a fixed local start time and rejects an invalid one', () => {
+    const completeTask = {
+      id: 'task-1',
+      title: 'Leave for RVI hospital',
+      durationMinutes: 30,
+      durationWasEstimated: true,
+      priority: 'high',
+      canSplit: false,
+      minimumSessionMinutes: 15,
+    };
+
+    expect(proposedTaskSchema.parse({ ...completeTask, fixedStartTime: '11:00' }))
+      .toMatchObject({ fixedStartTime: '11:00' });
+    expect(proposedTaskSchema.safeParse({ ...completeTask, fixedStartTime: '25:00' }).success)
+      .toBe(false);
+  });
+
   it('locks settings to approved MVP defaults', () => {
     expect(
       appSettingsSchema.parse({

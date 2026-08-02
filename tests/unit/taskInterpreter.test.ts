@@ -107,6 +107,10 @@ describe('DeepSeekClient', () => {
       thinking: { type: 'disabled' },
       tool_choice: { type: 'function', function: { name: 'replace_tasks' } },
     });
+    expect(body.messages[0].content).toContain('fixed start');
+    expect(body.messages[0].content).toContain('deadline');
+    expect(body.tools[0].function.parameters.properties.tasks.items.properties)
+      .toHaveProperty('fixedStartTime');
   });
 
   it.each([

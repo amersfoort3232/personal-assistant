@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const rfc3339WithOffset = z.string().datetime({ offset: true });
+const localTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
 export const taskPrioritySchema = z.enum(['low', 'medium', 'high', 'urgent']);
 
@@ -13,6 +14,7 @@ export const proposedTaskSchema = z
     durationWasEstimated: z.boolean(),
     priority: taskPrioritySchema,
     deadline: rfc3339WithOffset.optional(),
+    fixedStartTime: localTime.optional(),
     canSplit: z.boolean(),
     minimumSessionMinutes: z.number().int().min(15).max(120),
   })

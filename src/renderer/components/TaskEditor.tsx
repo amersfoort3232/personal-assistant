@@ -22,6 +22,7 @@ type TaskFormState = {
   priority: TaskPriority;
   deadline: string;
   deadlineOffsetChoice: DeadlineOffsetChoice;
+  fixedStartTime: string;
   canSplit: boolean;
   minimumSessionMinutes: string;
 };
@@ -60,6 +61,7 @@ function formFromTask(task: ProposedTask): TaskFormState {
     priority: task.priority,
     deadline: deadlineToLocal(task.deadline),
     deadlineOffsetChoice: originalDeadlineOffsetChoice(task),
+    fixedStartTime: task.fixedStartTime ?? '',
     canSplit: task.canSplit,
     minimumSessionMinutes: String(task.minimumSessionMinutes),
   };
@@ -163,6 +165,7 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
       durationWasEstimated: form.durationWasEstimated,
       priority: form.priority,
       deadline,
+      fixedStartTime: form.fixedStartTime || undefined,
       canSplit: form.canSplit,
       minimumSessionMinutes: minimumSession,
     };
@@ -285,6 +288,16 @@ export function TaskEditor({ task, busy, onSave }: TaskEditorProps) {
                 value={form.deadline}
               />
               {deadlineError && <p className="field-error" id={deadlineErrorId}>{deadlineError}</p>}
+            </div>
+
+            <div>
+              <label htmlFor={`${prefix}-fixed-start`}>Fixed start</label>
+              <input
+                id={`${prefix}-fixed-start`}
+                onChange={(event) => updateForm({ fixedStartTime: event.target.value })}
+                type="time"
+                value={form.fixedStartTime}
+              />
             </div>
           </div>
 
