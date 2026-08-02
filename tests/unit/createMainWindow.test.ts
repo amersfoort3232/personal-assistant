@@ -18,6 +18,12 @@ describe('secure Electron window', () => {
     });
   });
 
+  it('disables DevTools in production window options', () => {
+    const options = createMainWindowOptions('C:\\app\\preload.js', true);
+
+    expect(options.webPreferences?.devTools).toBe(false);
+  });
+
   it('allows only required browser origins', () => {
     expect(isAllowedExternalUrl('https://accounts.google.com/o/oauth2/v2/auth')).toBe(true);
     expect(isAllowedExternalUrl('https://calendar.google.com/calendar/u/0/r')).toBe(true);

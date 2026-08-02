@@ -2,6 +2,7 @@ import type { BrowserWindowConstructorOptions } from 'electron';
 
 export function createMainWindowOptions(
   preloadPath: string,
+  productionBuild = false,
 ): BrowserWindowConstructorOptions {
   return {
     width: 1240,
@@ -16,7 +17,7 @@ export function createMainWindowOptions(
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
-      devTools: !process.env.PA_PRODUCTION,
+      devTools: !productionBuild,
     },
   };
 }

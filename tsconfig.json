@@ -9,5 +9,5 @@
     "jsx": "react-jsx",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src", "tests", "forge.config.ts", "vite.*.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "forge.config.ts", "playwright.config.ts", "vite.*.config.ts", "vitest.config.ts"]
 }
