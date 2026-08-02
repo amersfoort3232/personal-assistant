@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ErrorLoggerPort, ErrorProcess } from '../../src/main/diagnostics/errorLogger';
 import type { AppSettings, ApprovalResult } from '../../src/shared/domain';
 import { AppError } from '../../src/shared/errors';
 import { IPC, type IpcResult } from '../../src/shared/ipc';
@@ -11,6 +12,14 @@ import {
 } from '../../src/main/ipc/registerIpcHandlers';
 
 const packagedRendererUrl = 'file:///app/.vite/renderer/main_window/index.html';
+
+class RecordingErrorLogger implements ErrorLoggerPort {
+  readonly entries: Array<{ process: ErrorProcess; operation: string; error: unknown }> = [];
+
+  logError(process: ErrorProcess, operation: string, error: unknown): void {
+    this.entries.push({ process, operation, error });
+  }
+}
 
 function createIpcMain(): IpcMainLike & {
   handlers: Map<string, IpcMainListener>;
@@ -98,12 +107,13 @@ async function invoke(
 function register() {
   const ipcMain = createIpcMain();
   const orchestrator = createOrchestrator();
+  const errorLogger = new RecordingErrorLogger();
   const { event, expectedWebContents } = createEvent();
   registerIpcHandlers(ipcMain, orchestrator, {
     packagedRendererUrl,
     expectedWebContents,
-  });
-  return { ipcMain, orchestrator, event };
+  }, errorLogger);
+  return { ipcMain, orchestrator, event, errorLogger };
 }
 
 describe('validated IPC handlers', () => {
@@ -234,5 +244,20 @@ describe('validated IPC handlers', () => {
         retryable: false,
       },
     });
+  });
+
+  it('logs the failed channel and error without passing the IPC payload', async () => {
+    const { ipcMain, orchestrator, event, errorLogger } = register();
+    const providerError = new Error('provider failed');
+    vi.mocked(orchestrator.sendMessage).mockRejectedValueOnce(providerError);
+
+    await invoke(ipcMain, IPC.SEND_MESSAGE, event, { text: 'private planning request' });
+
+    expect(errorLogger.entries).toEqual([{
+      process: 'main',
+      operation: `ipc:${IPC.SEND_MESSAGE}`,
+      error: providerError,
+    }]);
+    expect(JSON.stringify(errorLogger.entries)).not.toContain('private planning request');
   });
 });

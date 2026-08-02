@@ -9,6 +9,8 @@ import {
   isAllowedExternalUrl,
 } from './main/app/securityPolicy';
 import { selectUserDataPath } from './main/app/runtimeUserDataPath';
+import { ErrorLogger } from './main/diagnostics/errorLogger';
+import { createElectronLogTransport } from './main/diagnostics/electronLogTransport';
 import { DeepSeekTaskService } from './main/deepseek/deepSeekTaskService';
 import { GoogleAuthService } from './main/google/googleAuthService';
 import { GoogleCalendarService } from './main/google/googleCalendarService';
@@ -69,6 +71,7 @@ async function loadWindow(window: BrowserWindow, packagedRendererPath: string): 
 
 async function startApplication(): Promise<void> {
   if (__PA_PRODUCTION_BUILD__) Menu.setApplicationMenu(null);
+  const errorLogger = new ErrorLogger(createElectronLogTransport(app.getPath('documents')));
 
   if (!__PA_E2E_BUILD__ && !GOOGLE_OAUTH_CLIENT_ID.trim()) {
     dialog.showErrorBox(
@@ -135,7 +138,7 @@ async function startApplication(): Promise<void> {
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
     packagedRendererUrl: pathToFileURL(packagedRendererPath).href,
     expectedWebContents: window.webContents,
-  });
+  }, errorLogger);
   app.once('before-quit', () => session.reset());
   await loadWindow(window, packagedRendererPath);
 }

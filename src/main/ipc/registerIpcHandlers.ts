@@ -15,6 +15,7 @@ import {
   type SerializableAppError,
 } from '../../shared/ipc';
 import { ipcRequestSchemas } from '../../shared/schemas';
+import type { ErrorLoggerPort } from '../diagnostics/errorLogger';
 
 type FrameLike = { readonly url: string };
 type WebContentsLike = { readonly mainFrame: FrameLike };
@@ -169,6 +170,7 @@ function registerHandler<T>(
   ipcMain: IpcMainLike,
   orchestrator: OrchestratorPort,
   policy: TrustedSenderPolicy,
+  errorLogger: ErrorLoggerPort,
   channel: string,
   definition: HandlerDefinition<T>,
 ): void {
@@ -187,6 +189,7 @@ function registerHandler<T>(
       const value = await definition.invoke(orchestrator, parsed.data);
       return { ok: true, value };
     } catch (error) {
+      errorLogger.logError('main', `ipc:${channel}`, error);
       return { ok: false, error: toIpcError(error) };
     }
   });
@@ -196,17 +199,18 @@ export function registerIpcHandlers(
   ipcMain: IpcMainLike,
   orchestrator: OrchestratorPort,
   policy: TrustedSenderPolicy,
+  errorLogger: ErrorLoggerPort,
 ): void {
-  registerHandler(ipcMain, orchestrator, policy, IPC.GET_SETUP_STATUS, handlerDefinitions[IPC.GET_SETUP_STATUS]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.SAVE_DEEPSEEK_KEY, handlerDefinitions[IPC.SAVE_DEEPSEEK_KEY]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.CONNECT_GOOGLE, handlerDefinitions[IPC.CONNECT_GOOGLE]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.DISCONNECT_GOOGLE, handlerDefinitions[IPC.DISCONNECT_GOOGLE]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.GET_SETTINGS, handlerDefinitions[IPC.GET_SETTINGS]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.UPDATE_SETTINGS, handlerDefinitions[IPC.UPDATE_SETTINGS]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.SEND_MESSAGE, handlerDefinitions[IPC.SEND_MESSAGE]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.UPDATE_TASK, handlerDefinitions[IPC.UPDATE_TASK]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.GENERATE_SCHEDULE, handlerDefinitions[IPC.GENERATE_SCHEDULE]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.UPDATE_SCHEDULE, handlerDefinitions[IPC.UPDATE_SCHEDULE]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.APPROVE_SCHEDULE, handlerDefinitions[IPC.APPROVE_SCHEDULE]);
-  registerHandler(ipcMain, orchestrator, policy, IPC.RESET_SESSION, handlerDefinitions[IPC.RESET_SESSION]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.GET_SETUP_STATUS, handlerDefinitions[IPC.GET_SETUP_STATUS]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.SAVE_DEEPSEEK_KEY, handlerDefinitions[IPC.SAVE_DEEPSEEK_KEY]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.CONNECT_GOOGLE, handlerDefinitions[IPC.CONNECT_GOOGLE]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.DISCONNECT_GOOGLE, handlerDefinitions[IPC.DISCONNECT_GOOGLE]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.GET_SETTINGS, handlerDefinitions[IPC.GET_SETTINGS]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.UPDATE_SETTINGS, handlerDefinitions[IPC.UPDATE_SETTINGS]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.SEND_MESSAGE, handlerDefinitions[IPC.SEND_MESSAGE]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.UPDATE_TASK, handlerDefinitions[IPC.UPDATE_TASK]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.GENERATE_SCHEDULE, handlerDefinitions[IPC.GENERATE_SCHEDULE]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.UPDATE_SCHEDULE, handlerDefinitions[IPC.UPDATE_SCHEDULE]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.APPROVE_SCHEDULE, handlerDefinitions[IPC.APPROVE_SCHEDULE]);
+  registerHandler(ipcMain, orchestrator, policy, errorLogger, IPC.RESET_SESSION, handlerDefinitions[IPC.RESET_SESSION]);
 }
