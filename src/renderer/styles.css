@@ -23,17 +23,23 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
 button,
-input {
+input,
+select,
+textarea {
   outline: none;
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(91, 73, 52, 0.28);
 }
 
@@ -46,7 +52,8 @@ input:focus-visible {
 
 .setup-panel,
 .loading-panel,
-.planning-placeholder {
+.planning-placeholder,
+.schedule-placeholder {
   width: min(100%, 760px);
   padding: clamp(28px, 5vw, 52px);
   border: 1px solid #ded6cb;
@@ -224,6 +231,26 @@ input {
   background: #fffdfa;
 }
 
+select,
+textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #cfc5b9;
+  border-radius: 9px;
+  color: #24211e;
+  background: #fffdfa;
+}
+
+select {
+  min-height: 42px;
+}
+
+textarea {
+  min-height: 76px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
 input::placeholder {
   color: #93887d;
 }
@@ -287,7 +314,8 @@ input:disabled {
 }
 
 .loading-panel,
-.planning-placeholder {
+.planning-placeholder,
+.schedule-placeholder {
   text-align: center;
 }
 
@@ -297,6 +325,235 @@ input:disabled {
   margin-left: auto;
 }
 
+.planning-shell {
+  place-items: start center;
+}
+
+.planning-workspace {
+  width: min(100%, 1180px);
+}
+
+.planning-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.planning-header h1 {
+  margin-bottom: 0;
+}
+
+.planning-actions {
+  display: grid;
+  grid-template-columns: auto minmax(145px, 175px) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.planning-actions label,
+.chat-composer label,
+.task-fields label {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.planning-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.chat-panel,
+.task-review {
+  padding: 24px;
+  border: 1px solid #ded6cb;
+  border-radius: 18px;
+  background: #fffdfa;
+  box-shadow: 0 14px 38px rgba(63, 51, 37, 0.07);
+}
+
+.panel-heading,
+.task-heading,
+.composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panel-heading {
+  margin-bottom: 20px;
+}
+
+.panel-heading h2 {
+  margin-bottom: 0;
+}
+
+.empty-state {
+  margin-bottom: 22px;
+  padding: 18px;
+  border-radius: 12px;
+  color: #71675c;
+  background: #f7f3ed;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.message-list {
+  display: grid;
+  gap: 12px;
+  max-height: 420px;
+  margin: 0 0 22px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.message {
+  max-width: 88%;
+  padding: 13px 15px;
+  border-radius: 13px;
+  background: #f1ece4;
+}
+
+.message-user {
+  justify-self: end;
+  color: #fff;
+  background: #574937;
+}
+
+.message-role {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  opacity: 0.76;
+  text-transform: uppercase;
+}
+
+.message p {
+  margin-bottom: 0;
+  white-space: pre-wrap;
+}
+
+.chat-composer,
+.task-fields,
+.task-list,
+.review-column {
+  display: grid;
+  gap: 10px;
+}
+
+.composer-footer .field-note {
+  flex: 1;
+}
+
+.task-count {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #574937;
+  background: #eee7dd;
+  font-size: 13px;
+  font-weight: 700;
+  place-items: center;
+}
+
+.task-list {
+  max-height: 640px;
+  overflow-y: auto;
+}
+
+.task-editor fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #e2dbd1;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.task-editor legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.task-heading {
+  margin-bottom: 16px;
+}
+
+.task-title {
+  font-weight: 700;
+}
+
+.estimated-badge {
+  padding: 4px 8px;
+  border-radius: 99px;
+  color: #775b20;
+  background: #fbefc9;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.task-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.task-field-grid > div {
+  display: grid;
+  gap: 6px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+}
+
+.checkbox-label input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.field-error {
+  margin: 0;
+  color: #9a3f35;
+  font-size: 13px;
+}
+
+.build-schedule {
+  width: 100%;
+}
+
+.schedule-placeholder {
+  margin: auto;
+}
+
+@media (max-width: 900px) {
+  .planning-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .planning-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 560px) {
   .app-shell {
     padding: 12px;
@@ -304,7 +561,8 @@ input:disabled {
 
   .setup-panel,
   .loading-panel,
-  .planning-placeholder {
+  .planning-placeholder,
+  .schedule-placeholder {
     padding: 24px 18px;
     border-radius: 16px;
   }
@@ -324,6 +582,11 @@ input:disabled {
   }
 
   .field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-actions,
+  .task-field-grid {
     grid-template-columns: 1fr;
   }
 
