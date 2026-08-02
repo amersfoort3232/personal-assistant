@@ -9,7 +9,7 @@ const settings: AppSettings = {
   workingHours: { start: '09:00', end: '17:00' },
   workingDays: [0, 1, 2, 3, 4, 5, 6],
   breakAfterMinutes: 60,
-  breakDurationMinutes: 10,
+  breakDurationMinutes: 15,
 };
 
 function block(overrides: Partial<ScheduleBlock> = {}): ScheduleBlock {
@@ -105,7 +105,7 @@ describe('validateDraft', () => {
         taskId: undefined,
         title: 'Break',
         start: '2026-08-01T10:04:00+01:00',
-        end: '2026-08-01T10:14:00+01:00',
+        end: '2026-08-01T10:19:00+01:00',
       }),
     ], [], targetDate, settings)).toEqual({ valid: true, errors: [], warnings: [] });
   });
@@ -189,7 +189,7 @@ describe('validateDraft', () => {
     ], [], targetDate, settings)).toEqual({ valid: true, errors: [], warnings: [] });
   });
 
-  it('warns instead of rejecting when a selected task over 60 minutes has no adjacent selected 10-minute break', () => {
+  it('warns instead of rejecting when a selected task over 60 minutes has no adjacent selected 15-minute break', () => {
     expect(validateDraft([
       block({ end: '2026-08-01T10:30:00+01:00' }),
     ], [], targetDate, settings)).toEqual({
@@ -199,7 +199,7 @@ describe('validateDraft', () => {
     });
   });
 
-  it('does not warn when a selected long task has its immediately following selected 10-minute break', () => {
+  it('does not warn when a selected long task has its immediately following selected 15-minute break', () => {
     expect(validateDraft([
       block({ id: 'task', end: '2026-08-01T10:30:00+01:00' }),
       block({
@@ -208,7 +208,7 @@ describe('validateDraft', () => {
         taskId: undefined,
         title: 'Break',
         start: '2026-08-01T10:30:00+01:00',
-        end: '2026-08-01T10:40:00+01:00',
+        end: '2026-08-01T10:45:00+01:00',
       }),
     ], [], targetDate, settings)).toEqual({ valid: true, errors: [], warnings: [] });
   });

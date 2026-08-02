@@ -12,7 +12,7 @@
 
 - Timezone is always `Europe/London`; `fixedStartTime` is `HH:mm` and receives its date from `targetDate`.
 - A fixed start is exact; conflicting or out-of-hours fixed tasks are never moved and return `fixed-time-conflict`.
-- A `Break` is 15 minutes and separates all assistant-created task blocks; imported Google Calendar busy periods are unchanged.
+- A `Break` is 15 minutes and separates consecutive assistant-created task blocks; imported Google Calendar busy periods are unchanged.
 - Continue strict local validation of every DeepSeek tool result and retain approval-before-calendar-write behaviour.
 - Do not add planning content or credentials to the rolling error log.
 
@@ -137,7 +137,7 @@ Expected: fixed-start fields are unsupported and the old ten-minute/long-task-on
 
 In `scheduleTasks.ts`, introduce `TASK_BUFFER_MINUTES = 15`. Convert a task’s `fixedStartTime` into a London `DateTime` using `targetDate`. Allocate valid fixed tasks first, rejecting a fixed task that cannot fit fully within the working window or overlaps a busy/previously-reserved interval. Reserve 15 minutes before and after an exact task when the adjacent time is in the working window, and emit the corresponding break block.
 
-For flexible tasks, replace the long-task-only break calculation with the 15-minute task buffer. Candidate capacity includes the task duration plus the following buffer; append a `Break` block after each allocated task and consume it from free time. Preserve session indexing and deterministic task ordering.
+For flexible tasks, replace the old ten-minute break with a 15-minute buffer. Candidate capacity includes that buffer when another assistant task follows; append a `Break` block for that protected interval and consume it from free time. Preserve session indexing and deterministic task ordering.
 
 In `schemas.ts`, add `'fixed-time-conflict'` to `unscheduledTaskSchema`. In `UnscheduledTasks.tsx`, map it to `The fixed start conflicts with your calendar or working hours.`
 

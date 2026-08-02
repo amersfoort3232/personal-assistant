@@ -101,7 +101,7 @@ describe('assistant preload bridge', () => {
       workingHours: { start: '09:00', end: '17:00' },
       workingDays: [0, 1, 2, 3, 4, 5, 6],
       breakAfterMinutes: 60,
-      breakDurationMinutes: 10,
+      breakDurationMinutes: 15,
     });
     await bridge.sendMessage('Plan my day');
     await bridge.updateTask({
@@ -130,7 +130,7 @@ describe('assistant preload bridge', () => {
         workingHours: { start: '09:00', end: '17:00' },
         workingDays: [0, 1, 2, 3, 4, 5, 6],
         breakAfterMinutes: 60,
-        breakDurationMinutes: 10,
+        breakDurationMinutes: 15,
       }],
       [IPC.SEND_MESSAGE, { text: 'Plan my day' }],
       [IPC.UPDATE_TASK, {

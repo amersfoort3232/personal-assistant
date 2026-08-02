@@ -19,9 +19,9 @@ a deadline and moved to 09:00.
   11".
 - Let users see and edit a fixed start time in the task review screen.
 - Schedule fixed-time tasks at that exact time on the selected schedule date.
-- Insert a 15-minute `Break` block after every assistant-created task, replacing
-  the existing 10-minute break-only-for-long-tasks rule. The next task therefore
-  cannot begin until at least 15 minutes after the preceding task ends.
+- Insert a 15-minute `Break` block between consecutive assistant-created tasks,
+  replacing the existing 10-minute break-only-for-long-tasks rule. The next task
+  therefore cannot begin until at least 15 minutes after the preceding task ends.
 
 The change does not alter Google Calendar busy events, working hours, approval,
 or the rule that only approved blocks are written to the Personal Assistant
@@ -71,7 +71,7 @@ start is editable before schedule generation, and any accepted edit invalidates
 the current draft as other task edits already do.
 
 The schedule timeline continues to render break blocks, now as 15-minute
-breaks between task blocks. On approval, task and break blocks are both written
+breaks between task blocks (and after a long task). On approval, task and break blocks are both written
 to the Personal Assistant calendar, preserving the protected breaks.
 
 ## Tests

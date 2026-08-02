@@ -50,7 +50,7 @@ function createOrchestrator(): OrchestratorPort {
     workingHours: { start: '09:00', end: '17:00' },
     workingDays: [0, 1, 2, 3, 4, 5, 6],
     breakAfterMinutes: 60,
-    breakDurationMinutes: 10,
+  breakDurationMinutes: 15,
   };
   const approval: ApprovalResult = { status: 'completed', results: [] };
   return {

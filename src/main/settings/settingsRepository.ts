@@ -14,7 +14,13 @@ export class SettingsRepository {
   async load(): Promise<AppSettings> {
     try {
       const parsed = JSON.parse(await readFile(this.filePath, 'utf8'));
-      return appSettingsSchema.parse(parsed);
+      const settings = appSettingsSchema.parse(parsed);
+      if (settings.breakDurationMinutes === 10) {
+        const migrated = { ...settings, breakDurationMinutes: 15 } as AppSettings;
+        await this.save(migrated);
+        return migrated;
+      }
+      return settings;
     } catch {
       await this.save(DEFAULT_SETTINGS);
       return structuredClone(DEFAULT_SETTINGS);

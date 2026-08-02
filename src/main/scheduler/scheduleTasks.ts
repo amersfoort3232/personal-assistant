@@ -17,6 +17,7 @@ import {
 
 const PRIORITY = { low: 1, medium: 2, high: 3, urgent: 4 } as const;
 const MINUTE = 60_000;
+const TASK_BUFFER_MINUTES = 15;
 
 function orderedTasks(tasks: ProposedTask[], targetDate: string): ProposedTask[] {
   const endOfDay = DateTime.fromISO(targetDate, { zone: 'Europe/London' })
@@ -78,7 +79,7 @@ function addTaskBlock(
   task: ProposedTask,
   startMs: number,
   durationMinutes: number,
-  settings: AppSettings,
+  breakMinutes: number,
 ): { occupiedEndMs: number } {
   const endMs = startMs + durationMinutes * MINUTE;
   blocks.push({
@@ -90,21 +91,46 @@ function addTaskBlock(
     end: toIso(endMs),
     selected: true,
   });
+  if (breakMinutes === 0) return { occupiedEndMs: endMs };
 
-  if (durationMinutes > settings.breakAfterMinutes) {
-    const breakEndMs = endMs + settings.breakDurationMinutes * MINUTE;
-    blocks.push({
-      id: randomUUID(),
-      kind: 'break',
-      title: 'Break',
-      start: toIso(endMs),
-      end: toIso(breakEndMs),
-      selected: true,
-    });
-    return { occupiedEndMs: breakEndMs };
+  const breakEndMs = endMs + breakMinutes * MINUTE;
+  blocks.push({
+    id: randomUUID(),
+    kind: 'break',
+    title: 'Break',
+    start: toIso(endMs),
+    end: toIso(breakEndMs),
+    selected: true,
+  });
+  return { occupiedEndMs: breakEndMs };
+}
+
+function addBreakBlock(blocks: ScheduleBlock[], startMs: number, durationMinutes: number): void {
+  blocks.push({
+    id: randomUUID(),
+    kind: 'break',
+    title: 'Break',
+    start: toIso(startMs),
+    end: toIso(startMs + durationMinutes * MINUTE),
+    selected: true,
+  });
+}
+
+function reserve(free: NumericInterval[], startMs: number, endMs: number): void {
+  for (let intervalIndex = free.length - 1; intervalIndex >= 0; intervalIndex -= 1) {
+    const interval = free[intervalIndex];
+    const reservedStartMs = Math.max(interval.startMs, startMs);
+    const reservedEndMs = Math.min(interval.endMs, endMs);
+    if (reservedStartMs < reservedEndMs) {
+      consume(free, intervalIndex, reservedStartMs, reservedEndMs);
+    }
   }
+}
 
-  return { occupiedEndMs: endMs };
+function fixedStartMs(task: ProposedTask, targetDate: string, timeZone: string): number | undefined {
+  if (!task.fixedStartTime) return undefined;
+  const parsed = DateTime.fromISO(`${targetDate}T${task.fixedStartTime}`, { zone: timeZone });
+  return parsed.isValid ? parsed.toMillis() : undefined;
 }
 
 function unscheduledReason(
@@ -137,7 +163,53 @@ export function scheduleTasks(input: {
   const windowStartMs = window.start.toMillis();
   const windowEndMs = window.end.toMillis();
 
-  for (const task of orderedTasks(input.tasks, input.targetDate)) {
+  const fixedTasks = input.tasks
+    .filter((task) => task.fixedStartTime)
+    .sort((left, right) => (
+      (fixedStartMs(left, input.targetDate, input.settings.timeZone) ?? Infinity)
+      - (fixedStartMs(right, input.targetDate, input.settings.timeZone) ?? Infinity)
+    ));
+
+  for (const task of fixedTasks) {
+    const startMs = fixedStartMs(task, input.targetDate, input.settings.timeZone);
+    const occupiedEndMs = startMs === undefined
+      ? undefined
+      : startMs + (task.durationMinutes + TASK_BUFFER_MINUTES) * MINUTE;
+    const slotIndex = startMs === undefined || occupiedEndMs === undefined
+      ? -1
+      : free.findIndex((slot) => slot.startMs <= startMs && slot.endMs >= occupiedEndMs);
+
+    if (slotIndex < 0 || startMs === undefined) {
+      unscheduledTasks.push({
+        taskId: task.id,
+        remainingMinutes: task.durationMinutes,
+        reason: 'fixed-time-conflict',
+      });
+      continue;
+    }
+
+    const preBufferStartMs = Math.max(windowStartMs, startMs - TASK_BUFFER_MINUTES * MINUTE);
+    const hasPreBuffer = startMs - preBufferStartMs === TASK_BUFFER_MINUTES * MINUTE
+      && free.some((slot) => slot.startMs <= preBufferStartMs && slot.endMs >= startMs);
+    if (hasPreBuffer) addBreakBlock(blocks, preBufferStartMs, TASK_BUFFER_MINUTES);
+
+    const added = addTaskBlock(
+      blocks,
+      task,
+      startMs,
+      task.durationMinutes,
+      TASK_BUFFER_MINUTES,
+    );
+    consume(free, slotIndex, startMs, added.occupiedEndMs);
+    reserve(free, preBufferStartMs, startMs);
+  }
+
+  const flexibleTasks = orderedTasks(
+    input.tasks.filter((candidate) => !candidate.fixedStartTime),
+    input.targetDate,
+  );
+
+  for (const [taskIndex, task] of flexibleTasks.entries()) {
     let remainingMinutes = task.durationMinutes;
     const deadlineMs = task.deadline
       ? Math.min(
@@ -146,19 +218,31 @@ export function scheduleTasks(input: {
         )
       : windowEndMs;
     const breakMinutes = task.durationMinutes > input.settings.breakAfterMinutes
-      ? input.settings.breakDurationMinutes
+      || taskIndex < flexibleTasks.length - 1
+      ? TASK_BUFFER_MINUTES
       : 0;
-    const contiguousMinutes = task.durationMinutes + breakMinutes;
 
     const contiguousIndex = free.findIndex((slot) => {
-      const availableEndMs = Math.min(slot.endMs, deadlineMs);
       const alignedStartMs = ceilToWholeMinute(slot.startMs, input.settings.timeZone);
-      return availableEndMs - alignedStartMs >= contiguousMinutes * MINUTE;
+      const taskEndMs = alignedStartMs + task.durationMinutes * MINUTE;
+      return taskEndMs <= deadlineMs
+        && taskEndMs + breakMinutes * MINUTE <= slot.endMs;
     });
+    const fallbackIndex = task.durationMinutes <= input.settings.breakAfterMinutes
+      && breakMinutes > 0
+      ? free.findIndex((slot) => {
+      const alignedStartMs = ceilToWholeMinute(slot.startMs, input.settings.timeZone);
+      const taskEndMs = alignedStartMs + task.durationMinutes * MINUTE;
+      return taskEndMs <= deadlineMs && taskEndMs <= slot.endMs;
+    })
+      : -1;
 
-    if (contiguousIndex >= 0) {
+    if (contiguousIndex >= 0 || fallbackIndex >= 0) {
+      const useBufferedSlot = contiguousIndex >= 0
+        && (fallbackIndex < 0 || contiguousIndex <= fallbackIndex);
+      const intervalIndex = useBufferedSlot ? contiguousIndex : fallbackIndex;
       const startMs = ceilToWholeMinute(
-        free[contiguousIndex].startMs,
+        free[intervalIndex].startMs,
         input.settings.timeZone,
       );
       const added = addTaskBlock(
@@ -166,11 +250,12 @@ export function scheduleTasks(input: {
         task,
         startMs,
         task.durationMinutes,
-        input.settings,
+        useBufferedSlot ? breakMinutes : 0,
       );
-      consume(free, contiguousIndex, startMs, added.occupiedEndMs);
+      consume(free, intervalIndex, startMs, added.occupiedEndMs);
       remainingMinutes = 0;
     } else if (task.canSplit) {
+      let finalSessionEndMs: number | undefined;
       for (
         let intervalIndex = 0;
         intervalIndex < free.length && remainingMinutes > 0;
@@ -181,9 +266,13 @@ export function scheduleTasks(input: {
         const availableMinutes = Math.floor(
           (Math.min(slot.endMs, deadlineMs) - startMs) / MINUTE,
         );
-        if (availableMinutes < task.minimumSessionMinutes) continue;
+        const usableTaskMinutes = Math.min(
+          availableMinutes,
+          Math.floor((slot.endMs - startMs) / MINUTE),
+        );
+        if (usableTaskMinutes < task.minimumSessionMinutes) continue;
 
-        const sessionMinutes = Math.min(60, remainingMinutes, availableMinutes);
+        const sessionMinutes = Math.min(60, remainingMinutes, usableTaskMinutes);
         if (sessionMinutes < task.minimumSessionMinutes) continue;
 
         const added = addTaskBlock(
@@ -191,11 +280,23 @@ export function scheduleTasks(input: {
           task,
           startMs,
           sessionMinutes,
-          input.settings,
+          0,
         );
         consume(free, intervalIndex, startMs, added.occupiedEndMs);
         remainingMinutes -= sessionMinutes;
+        finalSessionEndMs = added.occupiedEndMs;
         intervalIndex = -1;
+      }
+
+      if (remainingMinutes === 0 && taskIndex < flexibleTasks.length - 1 && finalSessionEndMs) {
+        const bufferEndMs = finalSessionEndMs + TASK_BUFFER_MINUTES * MINUTE;
+        const bufferSlotIndex = free.findIndex(
+          (slot) => slot.startMs <= finalSessionEndMs && slot.endMs >= bufferEndMs,
+        );
+        if (bufferSlotIndex >= 0) {
+          addBreakBlock(blocks, finalSessionEndMs, TASK_BUFFER_MINUTES);
+          consume(free, bufferSlotIndex, finalSessionEndMs, bufferEndMs);
+        }
       }
     }
 

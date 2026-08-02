@@ -67,6 +67,7 @@ export const unscheduledTaskSchema = z
     reason: z.enum([
       'no-free-time',
       'deadline-impossible',
+      'fixed-time-conflict',
       'minimum-session-does-not-fit',
     ]),
   })
@@ -87,7 +88,7 @@ export const appSettingsSchema = z
       z.literal(6),
     ]),
     breakAfterMinutes: z.literal(60),
-    breakDurationMinutes: z.literal(10),
+    breakDurationMinutes: z.union([z.literal(10), z.literal(15)]),
     personalAssistantCalendarId: z.string().min(1).optional(),
   })
   .strict();

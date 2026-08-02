@@ -15,7 +15,7 @@ const settings: AppSettings = {
   workingHours: { start: '09:00', end: '17:00' },
   workingDays: [0, 1, 2, 3, 4, 5, 6],
   breakAfterMinutes: 60,
-  breakDurationMinutes: 10,
+  breakDurationMinutes: 15,
 };
 
 function task(overrides: Partial<ProposedTask> = {}): ProposedTask {
@@ -77,8 +77,66 @@ describe('scheduleTasks', () => {
 
     expect(result.blocks.filter((block) => block.kind === 'task').map(taskTiming)).toEqual([
       { taskId: 'due', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T10:00:00.000+01:00' },
-      { taskId: 'high', start: '2026-08-03T10:00:00.000+01:00', end: '2026-08-03T11:00:00.000+01:00' },
+      { taskId: 'high', start: '2026-08-03T10:15:00.000+01:00', end: '2026-08-03T11:15:00.000+01:00' },
     ]);
+  });
+
+  it('keeps a fixed 11:00 task at 11:00 and reserves the preceding buffer', () => {
+    const result = scheduleTasks({
+      targetDate,
+      settings,
+      busyPeriods: [],
+      tasks: [
+        task({ id: 'flexible', durationMinutes: 60 }),
+        task({ id: 'rvi', durationMinutes: 30, fixedStartTime: '11:00' }),
+      ],
+    });
+
+    expect(result.blocks.filter((block) => block.kind === 'task').map(taskTiming)).toContainEqual({
+      taskId: 'rvi',
+      start: '2026-08-03T11:00:00.000+01:00',
+      end: '2026-08-03T11:30:00.000+01:00',
+    });
+    expect(result.blocks).toContainEqual(expect.objectContaining({
+      kind: 'break',
+      start: '2026-08-03T10:45:00.000+01:00',
+      end: '2026-08-03T11:00:00.000+01:00',
+    }));
+  });
+
+  it('uses a fifteen-minute break between short tasks', () => {
+    const result = scheduleTasks({
+      targetDate,
+      settings,
+      busyPeriods: [],
+      tasks: [
+        task({ id: 'first', durationMinutes: 30 }),
+        task({ id: 'second', durationMinutes: 30 }),
+      ],
+    });
+
+    expect(result.blocks.map((block) => ({ kind: block.kind, start: block.start, end: block.end })))
+      .toEqual([
+        { kind: 'task', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T09:30:00.000+01:00' },
+        { kind: 'break', start: '2026-08-03T09:30:00.000+01:00', end: '2026-08-03T09:45:00.000+01:00' },
+        { kind: 'task', start: '2026-08-03T09:45:00.000+01:00', end: '2026-08-03T10:15:00.000+01:00' },
+      ]);
+  });
+
+  it('does not move a fixed task that overlaps busy time', () => {
+    const result = scheduleTasks({
+      targetDate,
+      settings,
+      busyPeriods: [busy('2026-08-03T11:00:00+01:00', '2026-08-03T11:30:00+01:00')],
+      tasks: [task({ id: 'rvi', durationMinutes: 30, fixedStartTime: '11:00' })],
+    });
+
+    expect(result.blocks).toEqual([]);
+    expect(result.unscheduledTasks).toEqual([{
+      taskId: 'rvi',
+      remainingMinutes: 30,
+      reason: 'fixed-time-conflict',
+    }]);
   });
 
   it('sorts equal deadlines urgent before high before medium before low', () => {
@@ -97,13 +155,13 @@ describe('scheduleTasks', () => {
 
     expect(result.blocks.filter((block) => block.kind === 'task').map(taskTiming)).toEqual([
       { taskId: 'urgent', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T09:30:00.000+01:00' },
-      { taskId: 'high', start: '2026-08-03T09:30:00.000+01:00', end: '2026-08-03T10:00:00.000+01:00' },
-      { taskId: 'medium', start: '2026-08-03T10:00:00.000+01:00', end: '2026-08-03T10:30:00.000+01:00' },
-      { taskId: 'low', start: '2026-08-03T10:30:00.000+01:00', end: '2026-08-03T11:00:00.000+01:00' },
+      { taskId: 'high', start: '2026-08-03T09:45:00.000+01:00', end: '2026-08-03T10:15:00.000+01:00' },
+      { taskId: 'medium', start: '2026-08-03T10:30:00.000+01:00', end: '2026-08-03T11:00:00.000+01:00' },
+      { taskId: 'low', start: '2026-08-03T11:15:00.000+01:00', end: '2026-08-03T11:45:00.000+01:00' },
     ]);
   });
 
-  it('reserves an immediately following ten-minute break for an unsplittable 90-minute task', () => {
+  it('reserves an immediately following fifteen-minute break for an unsplittable 90-minute task', () => {
     const result = scheduleTasks({
       targetDate,
       settings,
@@ -117,7 +175,7 @@ describe('scheduleTasks', () => {
       end: block.end,
     }))).toEqual([
       { kind: 'task', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T10:30:00.000+01:00' },
-      { kind: 'break', start: '2026-08-03T10:30:00.000+01:00', end: '2026-08-03T10:40:00.000+01:00' },
+      { kind: 'break', start: '2026-08-03T10:30:00.000+01:00', end: '2026-08-03T10:45:00.000+01:00' },
     ]);
   });
 
@@ -152,7 +210,7 @@ describe('scheduleTasks', () => {
       end: block.end,
     }))).toEqual([
       { kind: 'task', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T10:01:00.000+01:00' },
-      { kind: 'break', start: '2026-08-03T10:01:00.000+01:00', end: '2026-08-03T10:11:00.000+01:00' },
+      { kind: 'break', start: '2026-08-03T10:01:00.000+01:00', end: '2026-08-03T10:16:00.000+01:00' },
     ]);
   });
 
@@ -267,7 +325,7 @@ describe('scheduleTasks', () => {
     });
   });
 
-  it('clips contiguous candidates to the deadline including required break capacity', () => {
+  it('allows a required break to follow the task deadline', () => {
     const result = scheduleTasks({
       targetDate,
       settings,
@@ -280,12 +338,12 @@ describe('scheduleTasks', () => {
       })],
     });
 
-    expect(result.blocks).toEqual([]);
-    expect(result.unscheduledTasks).toEqual([{
-      taskId: 'break-before-deadline',
-      remainingMinutes: 61,
-      reason: 'minimum-session-does-not-fit',
-    }]);
+    expect(result.blocks.map((block) => ({ kind: block.kind, start: block.start, end: block.end })))
+      .toEqual([
+        { kind: 'task', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T10:01:00.000+01:00' },
+        { kind: 'break', start: '2026-08-03T10:01:00.000+01:00', end: '2026-08-03T10:16:00.000+01:00' },
+      ]);
+    expect(result.unscheduledTasks).toEqual([]);
   });
 
   it('preserves original input order when every ordering field ties', () => {
@@ -301,7 +359,7 @@ describe('scheduleTasks', () => {
 
     expect(result.blocks.filter((block) => block.kind === 'task').map(taskTiming)).toEqual([
       { taskId: 'first', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T09:30:00.000+01:00' },
-      { taskId: 'second', start: '2026-08-03T09:30:00.000+01:00', end: '2026-08-03T10:00:00.000+01:00' },
+      { taskId: 'second', start: '2026-08-03T09:45:00.000+01:00', end: '2026-08-03T10:15:00.000+01:00' },
     ]);
   });
 
@@ -319,8 +377,8 @@ describe('scheduleTasks', () => {
 
     expect(result.blocks.filter((block) => block.kind === 'task').map(taskTiming)).toEqual([
       { taskId: 'long', start: '2026-08-03T09:00:00.000+01:00', end: '2026-08-03T10:00:00.000+01:00' },
-      { taskId: 'short', start: '2026-08-03T10:00:00.000+01:00', end: '2026-08-03T10:30:00.000+01:00' },
-      { taskId: 'split', start: '2026-08-03T10:30:00.000+01:00', end: '2026-08-03T11:30:00.000+01:00' },
+      { taskId: 'short', start: '2026-08-03T10:15:00.000+01:00', end: '2026-08-03T10:45:00.000+01:00' },
+      { taskId: 'split', start: '2026-08-03T11:00:00.000+01:00', end: '2026-08-03T12:00:00.000+01:00' },
     ]);
   });
 
@@ -341,7 +399,7 @@ describe('scheduleTasks', () => {
     ]);
   });
 
-  it('rounds a second-bearing free boundary up to the next London minute without changing task or break duration', () => {
+  it('rounds a second-bearing free boundary up to the next London minute and keeps the fifteen-minute break', () => {
     const result = scheduleTasks({
       targetDate,
       settings,
@@ -369,7 +427,7 @@ describe('scheduleTasks', () => {
       {
         kind: 'break',
         start: '2026-08-03T13:05:00.000+01:00',
-        end: '2026-08-03T13:15:00.000+01:00',
+        end: '2026-08-03T13:20:00.000+01:00',
       },
     ]);
   });

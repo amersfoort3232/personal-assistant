@@ -344,7 +344,7 @@ describe('AssistantOrchestrator', () => {
       {
         kind: 'break',
         start: '2026-08-03T10:01:00.000+01:00',
-        end: '2026-08-03T10:11:00.000+01:00',
+        end: '2026-08-03T10:16:00.000+01:00',
       },
     ]);
     expect(result.status).toBe('completed');
@@ -560,15 +560,13 @@ describe('AssistantOrchestrator', () => {
     const first = await harness.orchestrator.approveSchedule(selectedIds);
     const firstEventIds = harness.calendar.insertCalls.map((call) => call.eventId);
     const second = await harness.orchestrator.approveSchedule([selectedIds[1]]);
-    const retryEventIds = harness.calendar.insertCalls.slice(3).map((call) => call.eventId);
+    const retryEventIds = harness.calendar.insertCalls.slice(selectedIds.length).map((call) => call.eventId);
 
     expect(first).toEqual({
       status: 'completed',
-      results: [
-        { blockId: selectedIds[0], status: 'created', googleEventId: `google-${selectedIds[0]}` },
-        { blockId: selectedIds[1], status: 'failed', errorCode: 'CALENDAR_UNAVAILABLE' },
-        { blockId: selectedIds[2], status: 'created', googleEventId: `google-${selectedIds[2]}` },
-      ],
+      results: selectedIds.map((blockId, index) => index === 1
+        ? { blockId, status: 'failed', errorCode: 'CALENDAR_UNAVAILABLE' }
+        : { blockId, status: 'created', googleEventId: `google-${blockId}` }),
     });
     expect(second.status).toBe('completed');
     expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual([
@@ -608,16 +606,16 @@ describe('AssistantOrchestrator', () => {
     if (conflict.status !== 'conflict-detected') throw new Error('Expected retry conflict');
     expect(conflict.schedule.blocks).toEqual([{
       ...draft.blocks[1],
-      start: '2026-08-03T12:00:00.000+01:00',
-      end: '2026-08-03T13:00:00.000+01:00',
+      start: '2026-08-03T12:30:00.000+01:00',
+      end: '2026-08-03T12:45:00.000+01:00',
     }]);
     expect(conflict.schedule.unscheduledTasks).toEqual([]);
     expect(harness.calendar.insertCalls.map((call) => call.block.id)).toEqual(selectedIds);
 
     const edited = [{
       ...conflict.schedule.blocks[0],
-      start: '2026-08-03T12:05:00.000+01:00',
-      end: '2026-08-03T13:05:00.000+01:00',
+      start: '2026-08-03T12:35:00.000+01:00',
+      end: '2026-08-03T13:35:00.000+01:00',
     }];
     await expect(harness.orchestrator.updateSchedule(edited)).resolves.toMatchObject({
       blocks: edited,
@@ -639,11 +637,11 @@ describe('AssistantOrchestrator', () => {
     expect(harness.calendar.insertCalls.at(-1)?.block).toEqual(edited[0]);
     expect(harness.session.getSnapshot()).toMatchObject({
       approvalAttempt: {
-        results: [
-          { blockId: selectedIds[0], status: 'created', googleEventId: `google-${selectedIds[0]}` },
-          { blockId: selectedIds[1], status: 'created', googleEventId: `google-${selectedIds[1]}` },
-          { blockId: selectedIds[2], status: 'created', googleEventId: `google-${selectedIds[2]}` },
-        ],
+        results: selectedIds.map((blockId) => ({
+          blockId,
+          status: 'created',
+          googleEventId: `google-${blockId}`,
+        })),
       },
     });
 
@@ -688,7 +686,7 @@ describe('AssistantOrchestrator', () => {
     expect(conflict.schedule.blocks).toEqual([{
       ...draft.blocks[1],
       start: '2026-08-03T12:03:00.000+01:00',
-      end: '2026-08-03T13:03:00.000+01:00',
+      end: '2026-08-03T12:18:00.000+01:00',
     }]);
 
     await expect(harness.orchestrator.approveSchedule([selectedIds[1]])).resolves.toEqual({
@@ -928,7 +926,7 @@ describe('AssistantOrchestrator', () => {
         kind: 'break',
         title: 'Break',
         start: '2026-08-03T10:30:00+01:00',
-        end: '2026-08-03T10:40:00+01:00',
+        end: '2026-08-03T10:45:00+01:00',
         selected: true,
       },
     ]);

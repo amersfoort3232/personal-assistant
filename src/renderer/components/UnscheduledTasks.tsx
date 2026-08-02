@@ -3,6 +3,7 @@ import type { ProposedTask, UnscheduledTask } from '../../shared/domain';
 const REASONS: Record<UnscheduledTask['reason'], string> = {
   'no-free-time': 'No free time remains in the working day.',
   'deadline-impossible': 'The deadline cannot be met in the available time.',
+  'fixed-time-conflict': 'The fixed start conflicts with your calendar or working hours.',
   'minimum-session-does-not-fit': 'The minimum useful session does not fit.',
 };
 
