@@ -15,7 +15,7 @@ function secureFuseConfig(): FuseConfig<number> {
     [FuseV1Options.EnableNodeCliInspectArguments]: DISABLED,
     [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: ENABLED,
     [FuseV1Options.OnlyLoadAppFromAsar]: ENABLED,
-    [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: ENABLED,
+    [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: DISABLED,
     [FuseV1Options.GrantFileProtocolExtraPrivileges]: ENABLED,
   };
 }

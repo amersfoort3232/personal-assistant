@@ -29,7 +29,7 @@ const REQUIRED_FUSES = [
   [
     'LoadBrowserProcessSpecificV8Snapshot',
     FuseV1Options.LoadBrowserProcessSpecificV8Snapshot,
-    ENABLED,
+    DISABLED,
   ],
   [
     'GrantFileProtocolExtraPrivileges',
