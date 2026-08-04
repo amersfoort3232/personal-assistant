@@ -108,6 +108,11 @@ describe('DeepSeekClient', () => {
       tool_choice: { type: 'function', function: { name: 'replace_tasks' } },
     });
     expect(body.messages[0].content).toContain('fixed start');
+    expect(body.messages[0].content).toContain('practical personal assistant');
+    expect(body.messages[0].content).toContain('Breakfast: 08:00-09:00');
+    expect(body.messages[0].content).toContain('Lunch: 12:00-13:00');
+    expect(body.messages[0].content).toContain('Dinner: 18:00-19:00');
+    expect(body.messages[0].content).toContain('Do not create meal tasks, notes, or events');
     expect(body.messages[0].content).not.toContain('deadline');
     expect(body.tools[0].function.parameters.properties.tasks.items.properties)
       .toHaveProperty('fixedStartTime');
